@@ -1,0 +1,24 @@
+# ===== Backend (Maven / Spring Boot) =====
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+*.class
+*.jar
+*.war
+
+# ===== Frontend (React / Node) =====
+node_modules/
+build/
+dist/
+.env
+.env.local
+
+# ===== IDE =====
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# ===== Logs =====
+*.log
