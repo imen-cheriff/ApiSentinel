@@ -1,6 +1,6 @@
 # API Sentinel
 
-An AI-powered API security auditor. API Sentinel analyzes an OpenAPI/Swagger specification and automatically detects potential vulnerabilities based on the OWASP API Security Top 10 (BOLA, BFLA, missing rate limiting, mass assignment, excessive data exposure...).
+An AI-powered API security auditor. API Sentinel analyzes an OpenAPI/Swagger specification and automatically detects potential vulnerabilities based on the OWASP API Security Top 10 (BOLA, BFLA, missing rate limiting, mass assignment, excessive data exposure...). 
 
 ## Features
 
