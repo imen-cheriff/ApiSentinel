@@ -5,7 +5,7 @@ function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-8">
-      <p>Dashboard for project {projectId} — coming in Week 2</p>
+      <p>Dashboard for project {projectId}</p>
     </div>
   );
 }

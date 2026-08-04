@@ -1,0 +1,298 @@
+import { useEffect, useState } from "react";
+import api from "../services/api";
+
+const ANALYSIS_STEPS = [
+  "Reading OpenAPI file…",
+  "Analyzing API structure…",
+  "Correlating with OWASP API Security Top 10…",
+  "Generating report…",
+];
+
+const ANALYSIS_DURATION_MS = 5_000;
+const STEP_INTERVAL_MS = ANALYSIS_DURATION_MS / ANALYSIS_STEPS.length;
+
+function formatElapsed(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const mm = Math.floor(totalSec / 60);
+  const ss = String(totalSec % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function OpenApiUploader({ onUploadSuccess }) {
+  const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState(null);
+  const [fileName, setFileName] = useState(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [activeStep, setActiveStep] = useState(0);
+
+  useEffect(() => {
+    if (!isUploading) return;
+    setElapsedMs(0);
+    setActiveStep(0);
+    const t0 = Date.now();
+    const clock = setInterval(() => setElapsedMs(Date.now() - t0), 250);
+    return () => clearInterval(clock);
+  }, [isUploading]);
+
+  useEffect(() => {
+    if (!isUploading) return;
+    const id = setInterval(() => {
+      setActiveStep((s) => {
+        if (s >= ANALYSIS_STEPS.length) return s;
+        return s + 1;
+      });
+    }, STEP_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [isUploading]);
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+  };
+
+  const handleFileInput = (e) => {
+    const file = e.target.files[0];
+    if (file) processFile(file);
+  };
+
+  const processFile = async (file) => {
+    if (!file.name.endsWith(".json")) {
+      setError("Only .json files are accepted");
+      return;
+    }
+
+    setError(null);
+    setFileName(file.name);
+    setIsUploading(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const minWait = new Promise((r) => setTimeout(r, ANALYSIS_DURATION_MS));
+
+    try {
+      const [response] = await Promise.all([
+        api.post("/api/projects/import", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        }),
+        minWait,
+      ]);
+      setActiveStep(ANALYSIS_STEPS.length);
+      await new Promise((r) => setTimeout(r, 350));
+      onUploadSuccess(response.data);
+    } catch (err) {
+      setError("Import failed. Please check your file and try again.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const headerIndex = Math.min(activeStep, ANALYSIS_STEPS.length - 1);
+  const allDone = activeStep >= ANALYSIS_STEPS.length;
+  const headerLabel = allDone ? "Analysis complete" : ANALYSIS_STEPS[headerIndex];
+  const progressPct = Math.min(
+    100,
+    (activeStep / ANALYSIS_STEPS.length) * 100
+  );
+
+  return (
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`relative rounded-2xl text-center overflow-hidden transition-all duration-200 ${
+        isUploading ? "p-10" : "p-14"
+      } ${
+        isUploading
+          ? "border border-blue-200 bg-blue-50/90 shadow-[0_0_0_1px_rgba(29,78,216,0.06)]"
+          : isDragging
+            ? "border border-blue-500 bg-blue-50 shadow-[0_0_0_1px_rgba(29,78,216,0.2),0_0_32px_rgba(29,78,216,0.12)]"
+            : "border border-dashed border-blue-200 bg-white/80 hover:border-blue-400 hover:-translate-y-0.5 backdrop-blur-sm"
+      }`}
+    >
+      {/* HUD corner brackets */}
+      <span className={cornerClasses("top-0 left-0 rounded-tl-md border-r-0 border-b-0", isDragging || isUploading)} />
+      <span className={cornerClasses("top-0 right-0 rounded-tr-md border-l-0 border-b-0", isDragging || isUploading)} />
+      <span className={cornerClasses("bottom-0 left-0 rounded-bl-md border-r-0 border-t-0", isDragging || isUploading)} />
+      <span className={cornerClasses("bottom-0 right-0 rounded-br-md border-l-0 border-t-0", isDragging || isUploading)} />
+
+      {/* scanning sweep */}
+      <div
+        className="absolute left-0 right-0 h-16 -top-16 pointer-events-none animate-[sweep_4.5s_linear_infinite]"
+        style={{
+          background:
+            "linear-gradient(180deg, transparent, rgba(29,78,216,0.08), transparent)",
+        }}
+      />
+
+      {isUploading ? (
+        <div className="relative z-10 text-left">
+          <div className="flex items-start justify-between gap-4 mb-1">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {!allDone ? (
+                <svg
+                  className="w-4 h-4 shrink-0 text-blue-600 animate-spin"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <circle
+                    className="opacity-20"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                  />
+                  <path
+                    d="M22 12a10 10 0 0 0-10-10"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  className="w-4 h-4 shrink-0 text-blue-600"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    d="M3 8.5l3.5 3.5L13 4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
+              <p className="text-sm font-medium text-blue-800 truncate">
+                {headerLabel}
+              </p>
+            </div>
+            <span className="text-xs tabular-nums text-blue-500 shrink-0 pt-0.5 font-medium">
+              {formatElapsed(elapsedMs)}
+            </span>
+          </div>
+
+          {fileName && (
+            <p className="text-[11px] text-blue-400/80 mb-5 ml-7 truncate">
+              {fileName}
+            </p>
+          )}
+
+          <ul className="space-y-2.5 mb-6">
+            {ANALYSIS_STEPS.map((label, i) => {
+              const done = i < activeStep;
+              const active = i === activeStep && !allDone;
+              return (
+                <li
+                  key={label}
+                  className={`flex items-center gap-2.5 text-xs transition-colors duration-300 ${
+                    done
+                      ? "text-blue-700"
+                      : active
+                        ? "text-blue-600"
+                        : "text-blue-300"
+                  }`}
+                >
+                  {done ? (
+                    <svg
+                      className="w-3.5 h-3.5 shrink-0 text-blue-600"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        d="M3 8.5l3.5 3.5L13 4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  ) : active ? (
+                    <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center text-[10px] leading-none text-blue-500">
+                      –
+                    </span>
+                  ) : (
+                    <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center text-[10px] leading-none text-blue-200">
+                      –
+                    </span>
+                  )}
+                  <span>{label}</span>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="h-0.5 bg-blue-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-600 transition-all duration-500 ease-out"
+              style={{ width: `${Math.max(progressPct, 8)}%` }}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="relative z-10">
+          <svg
+            className="w-10 h-10 mx-auto mb-4 text-blue-600"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+          >
+            <path d="M12 3v12" strokeLinecap="round" />
+            <path d="M7 8l5-5 5 5" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+
+          <p className="text-slate-700 text-sm font-medium mb-1">
+            Drag and drop your OpenAPI / Swagger file (.json) here
+          </p>
+          <p className="text-slate-600 text-xs mb-3">or</p>
+
+          <input
+            type="file"
+            accept=".json"
+            onChange={handleFileInput}
+            className="hidden"
+            id="file-input"
+          />
+          <label
+            htmlFor="file-input"
+            className="text-blue-600 text-sm cursor-pointer border-b border-blue-300 pb-0.5 hover:text-blue-700 hover:border-blue-500 transition-colors"
+          >
+            click to browse
+          </label>
+        </div>
+      )}
+
+      {error && (
+        <p className="relative z-10 text-red-500 text-xs mt-4">{error}</p>
+      )}
+    </div>
+  );
+}
+
+function cornerClasses(position, active) {
+  return `absolute w-3.5 h-3.5 border-[1.5px] transition-colors duration-200 ${position} ${
+    active ? "border-blue-500" : "border-blue-300"
+  }`;
+}
+
+export default OpenApiUploader;
