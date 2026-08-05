@@ -1,1 +1,38 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");
+
+:root {
+  --bg: #0a0e16;
+  --surface: #10151f;
+  --border: #1e2530;
+  --text-primary: #e5e7eb;
+  --text-secondary: #8b93a1;
+
+  --critical: #ef4444;
+  --high: #f97316;
+  --medium: #eab308;
+  --low: #22c55e;
+
+  --get: #3b82f6;
+  --post: #22c55e;
+  --put: #f97316;
+  --delete: #ef4444;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: "Inter", sans-serif;
+}
+
+.font-mono-tech {
+  font-family: "JetBrains Mono", monospace;
+}
+
+@keyframes grid-pulse {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 0.6; }
+}
+.animate-grid-pulse {
+  animation: grid-pulse 3s ease-in-out infinite;
+}

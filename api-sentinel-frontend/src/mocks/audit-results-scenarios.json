@@ -1,0 +1,134 @@
+{
+  "projectId": "proj_88a91b",
+  "projectName": "FinTech Core Services API",
+  "scanDate": "2026-07-29T10:00:00Z",
+  "globalSecurityScore": 42,
+  "summary": {
+    "totalEndpoints": 6,
+    "criticalRisks": 2,
+    "highRisks": 2,
+    "mediumRisks": 1,
+    "lowRisks": 1
+  },
+  "auditResults": [
+    {
+      "endpointId": "ep_01",
+      "path": "/users/{userId}/banking-details",
+      "method": "GET",
+      "riskLevel": "CRITICAL",
+      "owaspCategory": "API1:2023 - Broken Object Level Authorization (BOLA)",
+      "vulnerability": "Absence de contrôle de propriété sur l'identifiant d'URL.",
+      "description": "Le paramètre {userId} est transmis directement dans le chemin sans garantie que l'utilisateur du jeton JWT soit le propriétaire de la ressource.",
+      "remediation": "Vérifier côté backend que SecurityContext.getCurrentUser().getId() correspond au {userId} demandé.",
+      "testScenario": {
+        "title": "Usurpation d'identifiant bancaire",
+        "steps": [
+          "Authentifier l'utilisateur A (ID: 100) et récupérer son jeton JWT.",
+          "Envoyer une requête GET sur /users/200/banking-details avec le jeton de l'utilisateur A.",
+          "Si l'API renvoie un statut 200 avec les données du compte 200, la vulnérabilité BOLA est confirmée."
+        ],
+        "expectedStatusOnSuccess": 403,
+        "payloadExample": "GET /v1/users/200/banking-details HTTP/1.1\nHost: api.fintech-demo.com\nAuthorization: Bearer <JWT_USER_A>"
+      }
+    },
+    {
+      "endpointId": "ep_02",
+      "path": "/admin/users/{userId}",
+      "method": "DELETE",
+      "riskLevel": "CRITICAL",
+      "owaspCategory": "API5:2023 - Broken Function Level Authorization (BFLA)",
+      "vulnerability": "Accès non restreint aux fonctions administratives.",
+      "description": "La méthode DELETE sous le préfixe /admin/ ne contient pas de directive explicite exigeant le rôle ROLE_ADMIN dans la documentation OpenAPI.",
+      "remediation": "Annoter la méthode du contrôleur Spring avec @PreAuthorize(\"hasRole('ADMIN')\").",
+      "testScenario": {
+        "title": "Suppression de compte sans privilèges",
+        "steps": [
+          "Se connecter en tant qu'utilisateur standard (Rôle: USER).",
+          "Tenter d'émettre une requête DELETE vers /admin/users/50.",
+          "Vérifier si l'API autorise l'action sans vérifier le rôle d'administration."
+        ],
+        "expectedStatusOnSuccess": 403,
+        "payloadExample": "DELETE /v1/admin/users/50 HTTP/1.1\nHost: api.fintech-demo.com\nAuthorization: Bearer <JWT_REGULAR_USER>"
+      }
+    },
+    {
+      "endpointId": "ep_03",
+      "path": "/auth/login",
+      "method": "POST",
+      "riskLevel": "HIGH",
+      "owaspCategory": "API4:2023 - Unrestricted Resource Consumption",
+      "vulnerability": "Absence de limitation de débit (Rate Limiting).",
+      "description": "L'endpoint d'authentification ne documente aucune politique d'étranglement ou d'en-têtes HTTP de type RateLimit-Limit.",
+      "remediation": "Implémenter un filtre de Rate Limiting avec Bucket4j ou un API Gateway (ex: 5 requêtes max par minute par IP).",
+      "testScenario": {
+        "title": "Attaque par force brute automatisée",
+        "steps": [
+          "Configurer un outil d'automatisation (ex: Hydra ou Script Python).",
+          "Envoyer 200 requêtes POST successives vers /auth/login avec différents mots de passe.",
+          "Observer si le serveur renvoie HTTP 429 Too Many Requests après N tentatives."
+        ],
+        "expectedStatusOnSuccess": 429,
+        "payloadExample": "POST /v1/auth/login HTTP/1.1\nHost: api.fintech-demo.com\nContent-Type: application/json\n\n{\"email\":\"target@example.com\",\"password\":\"wrong_pass_1\"}"
+      }
+    },
+    {
+      "endpointId": "ep_04",
+      "path": "/documents/upload",
+      "method": "POST",
+      "riskLevel": "HIGH",
+      "owaspCategory": "API10:2023 - Unsafe Consumption of APIs / Path Traversal",
+      "vulnerability": "Injection de chemin de fichier via destinationPath.",
+      "description": "Le paramètre destinationPath permet à l'utilisateur de spécifier le répertoire cible sur le serveur Cloud.",
+      "remediation": "Supprimer la possibilité pour l'utilisateur de spécifier le chemin de destination. Assainir les noms de fichiers.",
+      "testScenario": {
+        "title": "Upload arbitraire avec saut de répertoire",
+        "steps": [
+          "Préparer une requête d'upload multipart.",
+          "Définir destinationPath avec la valeur '../../../../etc/' ou '../../public/'.",
+          "Vérifier si le fichier est enregistré en dehors du répertoire temporaire sécurisé."
+        ],
+        "expectedStatusOnSuccess": 400,
+        "payloadExample": "POST /v1/documents/upload HTTP/1.1\nContent-Type: multipart/form-data\n\ndestinationPath=../../../../var/www/html/"
+      }
+    },
+    {
+      "endpointId": "ep_05",
+      "path": "/users/me/profile",
+      "method": "GET",
+      "riskLevel": "MEDIUM",
+      "owaspCategory": "API3:2023 - Broken Object Property Level Authorization",
+      "vulnerability": "Exposition excessive de données (Over-fetching).",
+      "description": "Le schéma de réponse indique le retour direct de l'entité globale sans filtrage des champs sensibles.",
+      "remediation": "Utiliser un objet DTO (Data Transfer Object) restreint avec Jackson @JsonView pour masquer les propriétés internes.",
+      "testScenario": {
+        "title": "Inspection des champs de données sensibles",
+        "steps": [
+          "Effectuer une requête GET légitime sur /users/me/profile.",
+          "Inspecter le corps JSON de la réponse.",
+          "Rechercher la présence involontaire d'attributs confidentiels (passwordHash, internalNotes, roleFlags)."
+        ],
+        "expectedStatusOnSuccess": 200,
+        "payloadExample": "GET /v1/users/me/profile HTTP/1.1\nAuthorization: Bearer <JWT_USER>"
+      }
+    },
+    {
+      "endpointId": "ep_06",
+      "path": "/reports/export",
+      "method": "GET",
+      "riskLevel": "LOW",
+      "owaspCategory": "API8:2023 - Security Misconfiguration",
+      "vulnerability": "Risque potentiel d'injection dans le tri de requêtes (SQLi).",
+      "description": "Le paramètre de tri 'sortBy' accepte des chaînes de caractères brutes pouvant être concaténées directement dans des requêtes SQL.",
+      "remediation": "Valider le paramètre sortBy par rapport à une liste blanche de colonnes autorisées.",
+      "testScenario": {
+        "title": "Test d'injection de clause SQL via sortBy",
+        "steps": [
+          "Envoyer une requête GET avec sortBy=created_at;SELECT+SLEEP(5).",
+          "Mesurer le temps de réponse de l'API pour détecter une exécution de commande SQL."
+        ],
+        "expectedStatusOnSuccess": 400,
+        "payloadExample": "GET /v1/reports/export?sortBy=id;SELECT+1 HTTP/1.1"
+      }
+    }
+  ]
+}
