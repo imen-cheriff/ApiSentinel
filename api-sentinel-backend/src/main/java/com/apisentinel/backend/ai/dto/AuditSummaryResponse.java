@@ -1,4 +1,10 @@
 package com.apisentinel.backend.ai.dto;
 
-public class AuditSummaryResponse {
+public record AuditSummaryResponse(
+        int totalEndpoints,
+        int criticalRisks,
+        int highRisks,
+        int mediumRisks,
+        int lowRisks
+) {
 }

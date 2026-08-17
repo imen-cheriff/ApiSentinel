@@ -1,106 +1,87 @@
 package com.apisentinel.backend.entity;
 
 import jakarta.persistence.*;
-
+import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Entity
+@Data
 public class Project {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private long id;
+    private Long id;
 
-    private String name;
-    private LocalDateTime ScanDate;
-    private int globalSecurityScore;
-    private int totalEndpoints;
-    private int criticalRisks;
-    private int highRisks;
-    private int mediumRisks;
-    private int lowRisks;
+    private String projectId;
+    private String projectName;
+    private LocalDateTime scanDate;
+    private Integer globalSecurityScore;
 
     @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<Route> routes;
+    private List<Endpoint> endpoints;
 
-    public long getId() {
+    private static final Map<RiskLevel, Integer> PENALTY_BY_LEVEL = Map.of(
+            RiskLevel.CRITICAL, 25,
+            RiskLevel.HIGH, 15,
+            RiskLevel.MEDIUM, 8,
+            RiskLevel.LOW, 3
+    );
+
+    public void calculateSecurityScore(List<AuditResult> allResults) {
+        int score = 100;
+        for (AuditResult result : allResults) {
+            score -= PENALTY_BY_LEVEL.getOrDefault(result.getRiskLevel(), 5);
+        }
+        this.globalSecurityScore = Math.max(0, score);
+    }
+
+    public Long getId() {
         return id;
     }
 
-    public void setId(long id) {
+    public void setId(Long id) {
         this.id = id;
     }
 
-    public String getName() {
-        return name;
+    public String getProjectId() {
+        return projectId;
     }
 
-    public void setName(String name) {
-        this.name = name;
+    public void setProjectId(String projectId) {
+        this.projectId = projectId;
+    }
+
+    public String getProjectName() {
+        return projectName;
+    }
+
+    public void setProjectName(String projectName) {
+        this.projectName = projectName;
     }
 
     public LocalDateTime getScanDate() {
-        return ScanDate;
+        return scanDate;
     }
 
     public void setScanDate(LocalDateTime scanDate) {
-        ScanDate = scanDate;
+        this.scanDate = scanDate;
     }
 
-    public int getGlobalSecurityScore() {
+    public Integer getGlobalSecurityScore() {
         return globalSecurityScore;
     }
 
-    public void setGlobalSecurityScore(int globalSecurityScore) {
+    public void setGlobalSecurityScore(Integer globalSecurityScore) {
         this.globalSecurityScore = globalSecurityScore;
     }
 
-    public int getTotalEndpoints() {
-        return totalEndpoints;
+    public List<Endpoint> getEndpoints() {
+        return endpoints;
     }
 
-    public void setTotalEndpoints(int totalEndpoints) {
-        this.totalEndpoints = totalEndpoints;
-    }
-
-    public int getCriticalRisks() {
-        return criticalRisks;
-    }
-
-    public void setCriticalRisks(int criticalRisks) {
-        this.criticalRisks = criticalRisks;
-    }
-
-    public int getHighRisks() {
-        return highRisks;
-    }
-
-    public void setHighRisks(int highRisks) {
-        this.highRisks = highRisks;
-    }
-
-    public int getMediumRisks() {
-        return mediumRisks;
-    }
-
-    public void setMediumRisks(int mediumRisks) {
-        this.mediumRisks = mediumRisks;
-    }
-
-    public int getLowRisks() {
-        return lowRisks;
-    }
-
-    public void setLowRisks(int lowRisks) {
-        this.lowRisks = lowRisks;
-    }
-
-    public List<Route> getRoutes() {
-        return routes;
-    }
-
-    public void setRoutes(List<Route> routes) {
-        this.routes = routes;
+    public void setEndpoints(List<Endpoint> endpoints) {
+        this.endpoints = endpoints;
     }
 }

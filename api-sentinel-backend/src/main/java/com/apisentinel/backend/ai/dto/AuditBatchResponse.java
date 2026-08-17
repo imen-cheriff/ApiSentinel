@@ -1,4 +1,8 @@
 package com.apisentinel.backend.ai.dto;
 
-public class AuditBatchResponse {
+import java.util.List;
+
+public record AuditBatchResponse(
+        List<AuditResultAiResponse> findings
+) {
 }

@@ -1,17 +1,21 @@
 package com.apisentinel.backend.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
-
+import lombok.Data;
 import java.util.List;
 
 @Entity
+@Data
 public class AuditResult {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private String endpointId;
-    private String riskLevel;
+    @Enumerated(EnumType.STRING)
+    private RiskLevel riskLevel;
+
     private String owaspCategory;
 
     @Column(length = 2000)
@@ -23,18 +27,13 @@ public class AuditResult {
     @Column(length = 2000)
     private String remediation;
 
-    private String testScenarioTitle;
-    private Integer expectedStatusOnSuccess;
-
-    @Column(length = 2000)
-    private String payloadExample;
-
-    @OneToOne
-    @JoinColumn(name = "route_id")
-    private Route route;
+    @ManyToOne
+    @JoinColumn(name = "endpoint_id")
+    @JsonIgnore
+    private Endpoint endpoint;
 
     @OneToMany(mappedBy = "auditResult", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<TestStep> testSteps;
+    private List<TestScenario> testScenarios;
 
     public Long getId() {
         return id;
@@ -44,19 +43,11 @@ public class AuditResult {
         this.id = id;
     }
 
-    public String getEndpointId() {
-        return endpointId;
-    }
-
-    public void setEndpointId(String endpointId) {
-        this.endpointId = endpointId;
-    }
-
-    public String getRiskLevel() {
+    public RiskLevel getRiskLevel() {
         return riskLevel;
     }
 
-    public void setRiskLevel(String riskLevel) {
+    public void setRiskLevel(RiskLevel riskLevel) {
         this.riskLevel = riskLevel;
     }
 
@@ -92,43 +83,19 @@ public class AuditResult {
         this.remediation = remediation;
     }
 
-    public String getTestScenarioTitle() {
-        return testScenarioTitle;
+    public Endpoint getEndpoint() {
+        return endpoint;
     }
 
-    public void setTestScenarioTitle(String testScenarioTitle) {
-        this.testScenarioTitle = testScenarioTitle;
+    public void setEndpoint(Endpoint endpoint) {
+        this.endpoint = endpoint;
     }
 
-    public Integer getExpectedStatusOnSuccess() {
-        return expectedStatusOnSuccess;
+    public List<TestScenario> getTestScenarios() {
+        return testScenarios;
     }
 
-    public void setExpectedStatusOnSuccess(Integer expectedStatusOnSuccess) {
-        this.expectedStatusOnSuccess = expectedStatusOnSuccess;
-    }
-
-    public String getPayloadExample() {
-        return payloadExample;
-    }
-
-    public void setPayloadExample(String payloadExample) {
-        this.payloadExample = payloadExample;
-    }
-
-    public Route getRoute() {
-        return route;
-    }
-
-    public void setRoute(Route route) {
-        this.route = route;
-    }
-
-    public List<TestStep> getTestSteps() {
-        return testSteps;
-    }
-
-    public void setTestSteps(List<TestStep> testSteps) {
-        this.testSteps = testSteps;
+    public void setTestScenarios(List<TestScenario> testScenarios) {
+        this.testScenarios = testScenarios;
     }
 }

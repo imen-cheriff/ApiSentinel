@@ -1,6 +1,7 @@
 package com.apisentinel.backend.service;
 
-import com.apisentinel.backend.entity.Route;
+import com.apisentinel.backend.entity.Endpoint;
+import com.apisentinel.backend.entity.Parameter;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
@@ -15,37 +16,56 @@ import java.util.Map;
 @Service
 public class OpenApiParserService {
 
-    public List<Route> parse(byte[] fileContent) {
+    public List<Endpoint> parse(byte[] fileContent) {
         String content = new String(fileContent);
 
         OpenAPIV3Parser parser = new OpenAPIV3Parser();
         SwaggerParseResult result = parser.readContents(content, null, null);
         OpenAPI openAPI = result.getOpenAPI();
 
-        List<Route> routes = new ArrayList<>();
+        List<Endpoint> endpoints = new ArrayList<>();
 
         for (Map.Entry<String, PathItem> entry : openAPI.getPaths().entrySet()) {
             String path = entry.getKey();
             PathItem pathItem = entry.getValue();
 
-            addRouteIfPresent(routes, path, "GET", pathItem.getGet());
-            addRouteIfPresent(routes, path, "POST", pathItem.getPost());
-            addRouteIfPresent(routes, path, "PUT", pathItem.getPut());
-            addRouteIfPresent(routes, path, "DELETE", pathItem.getDelete());
+            addEndpointIfPresent(endpoints, path, "GET", pathItem.getGet());
+            addEndpointIfPresent(endpoints, path, "POST", pathItem.getPost());
+            addEndpointIfPresent(endpoints, path, "PUT", pathItem.getPut());
+            addEndpointIfPresent(endpoints, path, "DELETE", pathItem.getDelete());
         }
 
-        return routes;
+        return endpoints;
     }
 
-    private void addRouteIfPresent(List<Route> routes, String path, String method, Operation operation) {
+    private void addEndpointIfPresent(List<Endpoint> endpoints, String path, String method, Operation operation) {
         if (operation == null) return;
 
-        Route route = new Route();
-        route.setPath(path);
-        route.setMethod(method);
-        route.setParametersJson(
-                operation.getParameters() != null ? operation.getParameters().toString() : "[]"
-        );
-        routes.add(route);
+        Endpoint endpoint = new Endpoint();
+        endpoint.setPath(path);
+        endpoint.setMethod(method);
+        endpoint.setSummary(operation.getSummary());
+        endpoint.setDescription(operation.getDescription());
+        endpoint.setEndpointId("ep_" + method.toLowerCase() + "_" + path.replaceAll("[/{}]", "_"));
+
+        List<Parameter> parameters = new ArrayList<>();
+        if (operation.getParameters() != null) {
+            for (io.swagger.v3.oas.models.parameters.Parameter swaggerParam : operation.getParameters()) {
+                Parameter parameter = new Parameter();
+                parameter.setName(swaggerParam.getName());
+                parameter.setInType(swaggerParam.getIn());
+                parameter.setRequired(swaggerParam.getRequired() != null && swaggerParam.getRequired());
+                parameter.setDataType(
+                        swaggerParam.getSchema() != null && swaggerParam.getSchema().getType() != null
+                                ? swaggerParam.getSchema().getType()
+                                : "string"
+                );
+                parameter.setEndpoint(endpoint);
+                parameters.add(parameter);
+            }
+        }
+        endpoint.setParameters(parameters);
+
+        endpoints.add(endpoint);
     }
 }
