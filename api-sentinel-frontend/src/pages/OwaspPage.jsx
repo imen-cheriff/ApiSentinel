@@ -134,7 +134,7 @@ function OwaspCategoryCard({ category, findings, onOpenFinding }) {
         </div>
 
         {/* Definition — small text under the title, revealed on hover */}
-        <div className="grid grid-rows-[0fr] group-hover/card:grid-rows-[1fr] transition-[grid-template-rows] duration-200 ease-out">
+        <div className="grid grid-rows-[0fr] duration-150 delay-0 ease-out group-hover/card:grid-rows-[1fr] group-hover/card:duration-300 group-hover/card:delay-[1000ms] transition-[grid-template-rows]">
           <div className="overflow-hidden">
             <p className="text-[10.5px] leading-snug text-slate-400 font-mono pb-2">
               {category.description}
