@@ -6,7 +6,6 @@ import FindingDetailPage from "./pages/FindingDetailPage";
 import DashboardIndexPage from "./pages/DashboardIndexPage";
 import OwaspPage from "./pages/OwaspPage";
 import OwaspIndexPage from "./pages/OwaspIndexPage";
-import ComparePage from "./pages/ComparePage";
 
 function App() {
   return (
