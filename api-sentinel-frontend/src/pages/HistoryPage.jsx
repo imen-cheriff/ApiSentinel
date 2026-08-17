@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import api from "../services/api";
 import { cn } from "../lib/utils";
 import { GridPattern } from "../components/GridPattern";
@@ -85,23 +87,34 @@ function ScoreEvolutionChart({ points }) {
     );
 }
 
-/* ---------------- CSV Export ---------------- */
-// Wraps a field for CSV: quotes it whenever it contains a comma, quote, or newline.
-function csvField(value) {
-    const str = value === null || value === undefined ? "" : String(value);
-    if (/[",\n]/.test(str)) {
-        return `"${str.replace(/"/g, '""')}"`;
-    }
-    return str;
+/* ---------------- PDF Export ---------------- */
+function hexToRgb(hex) {
+    const clean = hex.replace("#", "");
+    const bigint = parseInt(clean, 16);
+    return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
 }
 
-function csvRow(fields) {
-    return fields.map(csvField).join(",");
+// Blend a hex color toward white — used for soft tinted table cells, same
+// technique as the per-project audit PDF on the dashboard.
+function tint(hex, amount = 0.85) {
+    const [r, g, b] = hexToRgb(hex);
+    return [
+        Math.round(r + (255 - r) * amount),
+        Math.round(g + (255 - g) * amount),
+        Math.round(b + (255 - b) * amount),
+    ];
 }
 
-// Builds and downloads a clean, well-organised CSV of the scan history:
-// a title/summary block up top, then one tidy row per scan.
-function exportScansToCsv(scans) {
+function scoreColorOf(score) {
+    if (score == null) return "#64748b";
+    if (score >= 80) return "#2563eb";
+    if (score >= 50) return "#ca8a04";
+    return "#dc2626";
+}
+
+// Builds and downloads a colored, well-organised PDF of the scan history:
+// a header band, summary stat boxes, then a color-coded table (one row per scan).
+function exportScansToPdf(scans) {
     if (!scans || scans.length === 0) return;
 
     const scoredScans = scans.filter((s) => (s.securityScore ?? s.globalSecurityScore) != null);
@@ -110,54 +123,93 @@ function exportScansToCsv(scans) {
               scoredScans.reduce((sum, s) => sum + (s.securityScore ?? s.globalSecurityScore), 0) /
                   scoredScans.length
           )
-        : "—";
+        : null;
     const totalRoutes = scans.reduce((sum, s) => sum + (s.endpoints?.length || 0), 0);
     const totalFindings = scans.reduce((sum, s) => sum + (findingsCountOf(s) || 0), 0);
     const generatedOn = new Date().toLocaleString("fr-FR", { dateStyle: "long", timeStyle: "short" });
 
-    const lines = [];
-    lines.push(csvRow(["API SENTINEL — SCAN HISTORY EXPORT"]));
-    lines.push(csvRow([`Generated on`, generatedOn]));
-    lines.push("");
-    lines.push(csvRow(["SUMMARY"]));
-    lines.push(csvRow(["Total scans", scans.length]));
-    lines.push(csvRow(["Average security score", avgScore === "—" ? avgScore : `${avgScore}/100`]));
-    lines.push(csvRow(["Total routes scanned", totalRoutes]));
-    lines.push(csvRow(["Total findings", totalFindings]));
-    lines.push("");
-    lines.push(csvRow(["SCAN DETAILS"]));
-    lines.push(
-        csvRow(["Specification", "Scanned", "Scan Date (ISO)", "Score", "Status", "Routes", "Findings"])
-    );
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const marginX = 40;
 
-    scans.forEach((scan) => {
-        const score = scan.securityScore ?? scan.globalSecurityScore;
-        const status = statusForScore(score);
-        lines.push(
-            csvRow([
+    // Header band
+    doc.setFillColor(...hexToRgb("#1d4ed8"));
+    doc.rect(0, 0, pageWidth, 92, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text("API SENTINEL", marginX, 38);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text("SCAN HISTORY EXPORT", marginX, 54);
+    doc.setFontSize(8);
+    doc.text(`Généré le ${generatedOn}`, pageWidth - marginX, 74, { align: "right" });
+
+    let y = 118;
+
+    // Summary stat boxes
+    const statBoxes = [
+        { label: "TOTAL SCANS", value: `${scans.length}`, color: "#2563eb" },
+        { label: "AVG SCORE", value: avgScore != null ? `${avgScore}/100` : "—", color: scoreColorOf(avgScore) },
+        { label: "ROUTES SCANNED", value: `${totalRoutes}`, color: "#2563eb" },
+        { label: "TOTAL FINDINGS", value: `${totalFindings}`, color: "#2563eb" },
+    ];
+    const boxWidth = (pageWidth - marginX * 2 - 3 * 12) / 4;
+    statBoxes.forEach((box, i) => {
+        const x = marginX + i * (boxWidth + 12);
+        doc.setFillColor(...tint(box.color, 0.9));
+        doc.roundedRect(x, y, boxWidth, 56, 6, 6, "F");
+        doc.setTextColor(...hexToRgb(box.color));
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.text(box.label, x + boxWidth / 2, y + 18, { align: "center" });
+        doc.setFontSize(16);
+        doc.text(box.value, x + boxWidth / 2, y + 40, { align: "center" });
+    });
+
+    y += 80;
+
+    // Table: one color-coded row per scan
+    autoTable(doc, {
+        startY: y,
+        margin: { left: marginX, right: marginX },
+        head: [["Specification", "Scanned", "Score", "Status", "Routes", "Findings"]],
+        body: scans.map((scan) => {
+            const score = scan.securityScore ?? scan.globalSecurityScore;
+            const status = statusForScore(score);
+            return [
                 scan.projectName || "Untitled",
                 formatRelativeTime(scan.scanDate),
-                scan.scanDate || "",
                 score != null ? `${score}/100` : "—",
                 status.label,
                 scan.endpoints?.length ?? "—",
                 findingsCountOf(scan) ?? "—",
-            ])
-        );
+            ];
+        }),
+        theme: "grid",
+        styles: { font: "helvetica", fontSize: 8.5, cellPadding: 6, lineColor: [219, 234, 254], lineWidth: 0.5 },
+        headStyles: { fillColor: hexToRgb("#1d4ed8"), textColor: 255, fontStyle: "bold", fontSize: 8 },
+        columnStyles: {
+            2: { halign: "center", fontStyle: "bold" },
+            3: { halign: "center", fontStyle: "bold" },
+            4: { halign: "center" },
+            5: { halign: "center" },
+        },
+        didParseCell: (data) => {
+            if (data.section !== "body") return;
+            const scan = scans[data.row.index];
+            const score = scan.securityScore ?? scan.globalSecurityScore;
+            const status = statusForScore(score);
+            // Tint the Score and Status columns to match their severity color.
+            if (data.column.index === 2 || data.column.index === 3) {
+                data.cell.styles.fillColor = tint(status.color, 0.85);
+                data.cell.styles.textColor = hexToRgb(status.color);
+            }
+        },
     });
 
-    // Leading BOM so Excel opens accents/UTF-8 correctly instead of mangling them.
-    const csvContent = "\uFEFF" + lines.join("\r\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
     const dateStamp = new Date().toISOString().slice(0, 10);
-    link.href = url;
-    link.download = `api-sentinel-history-${dateStamp}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    doc.save(`api-sentinel-history-${dateStamp}.pdf`);
 }
 
 function historyCornerClasses(position) {
@@ -249,11 +301,11 @@ function HistoryPage() {
 
                     <div className="flex items-center gap-3">
                         <button
-                            onClick={() => exportScansToCsv(scans)}
+                            onClick={() => exportScansToPdf(scans)}
                             disabled={scans.length === 0}
                             className="px-3 py-1.5 rounded-lg bg-white/90 border border-blue-200 text-slate-700 hover:bg-blue-50 transition-colors flex items-center gap-1.5 shadow-sm text-xs disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white/90"
                         >
-                            <Download className="w-3.5 h-3.5" /> Export CSV
+                            <Download className="w-3.5 h-3.5" /> Export PDF
                         </button>
                         <button
                             onClick={() => navigate("/")}
