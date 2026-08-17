@@ -1,15 +1,40 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import api from "../services/api";
 
-const ANALYSIS_STEPS = [
-  "Reading OpenAPI file…",
-  "Analyzing API structure…",
-  "Correlating with OWASP API Security Top 10…",
-  "Generating report…",
+// Real pipeline, in order. Each step is tied to an actual phase of work —
+// no fixed fake timers deciding when we're "done".
+//   phase 0 -> POST /api/projects/import   (parse the OpenAPI file)
+//   phase 1 -> POST /api/projects/:id/audit (Gemini AI audit, can take up to ~1min)
+//   phase 2 -> both calls resolved, about to navigate
+const STEPS = [
+  { label: "Reading OpenAPI file…", phase: 0 },
+  { label: "Running AI audit (Gemini)…", phase: 1 },
+  { label: "Correlating with OWASP API Top 10…", phase: 1 },
+  { label: "Generating report…", phase: 2 },
 ];
 
-const ANALYSIS_DURATION_MS = 5_000;
-const STEP_INTERVAL_MS = ANALYSIS_DURATION_MS / ANALYSIS_STEPS.length;
+// The checklist is allowed to visually crawl through the steps that belong
+// to the phase currently in flight, but never past it — the "Generating
+// report" step (phase 2) only becomes reachable once the audit call has
+// truly resolved.
+function maxStepForPhase(ph) {
+  if (ph === 0) return 0; // import in flight -> only step 0 belongs here
+  if (ph === 1) return 2; // audit in flight -> may crawl through steps 1-2
+  return STEPS.length - 1; // both calls resolved -> final step
+}
+
+// Progressive pacing for the audit phase (~40s in practice): checkpoint 1
+// ticks off around 5s, checkpoint 2 around 15s, checkpoint 3 around 25s.
+// The final checkpoint ("Generating report") is NOT time-based — it appears
+// the instant the real audit call resolves (phase becomes 2).
+const CHECKPOINT_TIMES_MS = [5000, 15000, 25000];
+
+function timeStepForElapsed(ms) {
+  if (ms < CHECKPOINT_TIMES_MS[0]) return 0;
+  if (ms < CHECKPOINT_TIMES_MS[1]) return 1;
+  if (ms < CHECKPOINT_TIMES_MS[2]) return 2;
+  return 3;
+}
 
 function formatElapsed(ms) {
   const totalSec = Math.floor(ms / 1000);
@@ -24,27 +49,50 @@ function OpenApiUploader({ onUploadSuccess }) {
   const [error, setError] = useState(null);
   const [fileName, setFileName] = useState(null);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [activeStep, setActiveStep] = useState(0);
+  const [phase, setPhase] = useState(0); // 0 = importing, 1 = auditing, 2 = done
+  const [displayStep, setDisplayStep] = useState(0);
+  const phaseRef = useRef(0);
+  const resultsRef = useRef({ project: null, auditResult: null });
 
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  // Real elapsed-time clock, running for as long as we're actually waiting.
   useEffect(() => {
     if (!isUploading) return;
     setElapsedMs(0);
-    setActiveStep(0);
     const t0 = Date.now();
     const clock = setInterval(() => setElapsedMs(Date.now() - t0), 250);
     return () => clearInterval(clock);
   }, [isUploading]);
 
+  // Drive the checklist from real elapsed time, following the requested
+  // pacing (0-5s / 5-15s / 15-25s), but never further than what the real
+  // phase has actually reached. The last step is the exception: as soon as
+  // the audit genuinely resolves (phase 2), jump straight to it.
   useEffect(() => {
     if (!isUploading) return;
-    const id = setInterval(() => {
-      setActiveStep((s) => {
-        if (s >= ANALYSIS_STEPS.length) return s;
-        return s + 1;
-      });
-    }, STEP_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [isUploading]);
+    if (phase >= 2) {
+      setDisplayStep(STEPS.length - 1);
+      return;
+    }
+    const target = Math.min(timeStepForElapsed(elapsedMs), maxStepForPhase(phase));
+    setDisplayStep(target);
+  }, [isUploading, elapsedMs, phase]);
+
+  // Once the checklist has visually caught up to the final step AND both
+  // real API calls have genuinely resolved, hand off to the dashboard.
+  useEffect(() => {
+    if (phase !== 2 || displayStep !== STEPS.length - 1) return;
+    if (!resultsRef.current.auditResult) return;
+    const t = setTimeout(() => {
+      onUploadSuccess(resultsRef.current);
+      setIsUploading(false);
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, displayStep]);
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -76,36 +124,43 @@ function OpenApiUploader({ onUploadSuccess }) {
     setError(null);
     setFileName(file.name);
     setIsUploading(true);
+    setPhase(0);
 
     const formData = new FormData();
     formData.append("file", file);
 
-    const minWait = new Promise((r) => setTimeout(r, ANALYSIS_DURATION_MS));
-
     try {
-      const [response] = await Promise.all([
-        api.post("/api/projects/import", formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-        }),
-        minWait,
-      ]);
-      setActiveStep(ANALYSIS_STEPS.length);
-      await new Promise((r) => setTimeout(r, 350));
-      onUploadSuccess(response.data);
+      // Step 1: import + parse the spec. We stay on this page and wait for
+      // the real response — no artificial delay.
+      const importRes = await api.post("/api/projects/import", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const project = importRes.data;
+
+      // Step 2: run the real AI audit. This can take up to ~1 minute — we
+      // keep showing progress here instead of navigating away first.
+      setPhase(1);
+      const auditRes = await api.post(`/api/projects/${project.id}/audit`);
+
+      // Both real calls are done now.
+      resultsRef.current = { project, auditResult: auditRes.data };
+      setPhase(2);
+      await new Promise((r) => setTimeout(r, 400)); // let the "done" tick register visually
+
+      onUploadSuccess({ project, auditResult: auditRes.data });
     } catch (err) {
-      setError("Import failed. Please check your file and try again.");
-    } finally {
+      setError(
+        phaseRef.current === 0
+          ? "Import failed. Please check your file and try again."
+          : "AI audit failed. Please try again."
+      );
       setIsUploading(false);
     }
   };
 
-  const headerIndex = Math.min(activeStep, ANALYSIS_STEPS.length - 1);
-  const allDone = activeStep >= ANALYSIS_STEPS.length;
-  const headerLabel = allDone ? "Analysis complete" : ANALYSIS_STEPS[headerIndex];
-  const progressPct = Math.min(
-    100,
-    (activeStep / ANALYSIS_STEPS.length) * 100
-  );
+  const allDone = phase >= 2 && displayStep === STEPS.length - 1;
+  const headerLabel = allDone ? "Analysis complete" : STEPS[displayStep].label;
+  const progressPct = Math.min(100, ((displayStep + 1) / STEPS.length) * 100);
 
   return (
     <div
@@ -193,12 +248,12 @@ function OpenApiUploader({ onUploadSuccess }) {
           )}
 
           <ul className="space-y-2.5 mb-6">
-            {ANALYSIS_STEPS.map((label, i) => {
-              const done = i < activeStep;
-              const active = i === activeStep && !allDone;
+            {STEPS.map((step, i) => {
+              const done = i < displayStep || allDone;
+              const active = i === displayStep && !allDone;
               return (
                 <li
-                  key={label}
+                  key={step.label}
                   className={`flex items-center gap-2.5 text-xs transition-colors duration-300 ${
                     done
                       ? "text-blue-700"
@@ -230,7 +285,7 @@ function OpenApiUploader({ onUploadSuccess }) {
                       –
                     </span>
                   )}
-                  <span>{label}</span>
+                  <span>{step.label}</span>
                 </li>
               );
             })}
@@ -242,6 +297,12 @@ function OpenApiUploader({ onUploadSuccess }) {
               style={{ width: `${Math.max(progressPct, 8)}%` }}
             />
           </div>
+
+          {phase === 1 && (
+            <p className="text-[10px] text-blue-400 mt-4 text-center">
+              The AI audit can take up to a minute.
+            </p>
+          )}
         </div>
       ) : (
         <div className="relative z-10">

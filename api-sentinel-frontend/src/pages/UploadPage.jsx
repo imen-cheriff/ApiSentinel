@@ -1,4 +1,5 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
+import { History } from "lucide-react";
 import OpenApiUploader from "../components/OpenApiUploader";
 import DigitalRain from "../components/DigitalRain";
 import Typewriter from "../components/Typewriter";
@@ -6,8 +7,11 @@ import Typewriter from "../components/Typewriter";
 function UploadPage() {
   const navigate = useNavigate();
 
-  const handleUploadSuccess = (data) => {
-    navigate(`/dashboard/${data.id}`);
+  const handleUploadSuccess = ({ project, auditResult }) => {
+    // Both the import and the AI audit already finished on this page —
+    // hand the data straight to the dashboard so it doesn't need to
+    // re-fetch or re-run the audit (and show a second loading screen).
+    navigate(`/dashboard/${project.id}`, { state: { project, auditResult } });
   };
 
   return (
@@ -85,6 +89,16 @@ function UploadPage() {
 
       <div className="relative z-10 max-w-xl w-full">
         <OpenApiUploader onUploadSuccess={handleUploadSuccess} />
+      </div>
+
+      <div className="relative z-10 mt-4">
+        <Link
+          to="/history"
+          className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-blue-600 transition-colors"
+        >
+          <History className="w-3.5 h-3.5" />
+          View scan history
+        </Link>
       </div>
 
       {/* <div className="relative z-10 flex gap-6 flex-wrap justify-center mt-8 text-[11px] tracking-wide text-slate-400">

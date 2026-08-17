@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import api from "../services/api";
-import mockAudit from "../mocks/audit-results-scenarios.json";
 import { cn } from "../lib/utils";
 import { GridPattern } from "../components/GridPattern";
 import {
@@ -21,12 +22,12 @@ import {
   Eye,
   Server,
   Key,
-  Database,
   FileCheck,
   Radar,
   Network,
+  Settings,
   Bug,
-  X,
+  Loader2,
 } from "lucide-react";
 
 const SEVERITY_COLORS = {
@@ -43,14 +44,284 @@ const METHOD_COLORS = {
   DELETE: "#dc2626",
 };
 
-const OWASP_COVERAGE = [
+// Pas de score numérique renvoyé par le backend au niveau d'un finding
+// (seulement riskLevel) — on en dérive un pour les barres/tri côté UI.
+const RISK_LEVEL_SCORE = {
+  CRITICAL: 95,
+  HIGH: 75,
+  MEDIUM: 50,
+  LOW: 20,
+};
+
+function riskScoreOf(audit) {
+  return audit ? RISK_LEVEL_SCORE[audit.riskLevel] || 0 : 0;
+}
+
+function owaspCodeOf(category) {
+  if (!category) return null;
+  const match = category.match(/^([A-Za-z0-9]+:\d{4})/);
+  return match ? match[1] : category;
+}
+
+// Le "pire" finding d'une route, pour la carte/le tri par risque.
+function worstAuditOf(endpoint) {
+  const results = endpoint.auditResults || [];
+  if (results.length === 0) return null;
+  return [...results].sort((a, b) => riskScoreOf(b) - riskScoreOf(a))[0];
+}
+
+// Full OWASP API Security Top 10 (2023) — used as a lookup table to resolve
+// the label/icon for whichever categories actually show up in this project's
+// findings (see `presentOwaspCoverage` below), rather than a fixed subset.
+const ALL_OWASP_CATEGORIES = [
   { label: "Broken Object Level Auth", code: "API1:2023", icon: Unlink },
-  { label: "Excessive Data Exposure", code: "API3:2023", icon: Eye },
-  { label: "Resource Consumption", code: "API4:2023", icon: Server },
+  { label: "Broken Authentication", code: "API2:2023", icon: Lock },
+  { label: "Broken Object Property Level Auth", code: "API3:2023", icon: Eye },
+  { label: "Unrestricted Resource Consumption", code: "API4:2023", icon: Server },
   { label: "Broken Function Level Auth", code: "API5:2023", icon: Key },
-  { label: "Mass Assignment", code: "API6:2023", icon: Database },
-  { label: "Improper Inventory / Logs", code: "API9:2023", icon: FileCheck },
+  { label: "Unrestricted Access to Sensitive Flows", code: "API6:2023", icon: Radar },
+  { label: "Server Side Request Forgery", code: "API7:2023", icon: Network },
+  { label: "Security Misconfiguration", code: "API8:2023", icon: Settings },
+  { label: "Improper Inventory Management", code: "API9:2023", icon: FileCheck },
+  { label: "Unsafe Consumption of APIs", code: "API10:2023", icon: Bug },
 ];
+
+/* ---------------- PDF Export ---------------- */
+function hexToRgb(hex) {
+  const clean = hex.replace("#", "");
+  const bigint = parseInt(clean, 16);
+  return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
+}
+
+// Blend a hex color toward white — used for soft severity-tinted table cells.
+function tint(hex, amount = 0.85) {
+  const [r, g, b] = hexToRgb(hex);
+  return [
+    Math.round(r + (255 - r) * amount),
+    Math.round(g + (255 - g) * amount),
+    Math.round(b + (255 - b) * amount),
+  ];
+}
+
+function scoreColorOf(score) {
+  if (score >= 80) return "#16a34a";
+  if (score >= 50) return "#ca8a04";
+  return "#dc2626";
+}
+
+// Builds and downloads a polished, color-coded PDF audit report for a project.
+function generateAuditPdf(project) {
+  if (!project) return;
+
+  const endpoints = project.endpoints || [];
+  const allAudits = endpoints.flatMap((ep) =>
+    (ep.auditResults || []).map((a) => ({ ...a, method: ep.method, path: ep.path }))
+  );
+  const totalFindings = allAudits.length;
+  const totalEndpoints = endpoints.length;
+  const affectedRoutes = endpoints.filter((ep) => (ep.auditResults || []).length > 0).length;
+  const severityCounts = allAudits.reduce((acc, a) => {
+    acc[a.riskLevel] = (acc[a.riskLevel] || 0) + 1;
+    return acc;
+  }, {});
+  const criticalCount = severityCounts.CRITICAL || 0;
+  const score = project.globalSecurityScore ?? 0;
+  const scoreColor = scoreColorOf(score);
+
+  const owaspCodesPresent = new Set(allAudits.map((a) => owaspCodeOf(a.owaspCategory)).filter(Boolean));
+  const presentOwaspCoverage = ALL_OWASP_CATEGORIES.filter((c) => owaspCodesPresent.has(c.code));
+
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 40;
+  const contentWidth = pageWidth - marginX * 2;
+
+  const generatedOn = new Date().toLocaleString("fr-FR", { dateStyle: "long", timeStyle: "short" });
+
+  const drawHeaderBand = () => {
+    doc.setFillColor(...hexToRgb("#1d4ed8"));
+    doc.rect(0, 0, pageWidth, 92, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text("API SENTINEL", marginX, 38);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text("SECURITY AUDIT REPORT", marginX, 54);
+    doc.setFontSize(9);
+    doc.text(project.projectName || "Untitled project", marginX, 74);
+    doc.setFontSize(8);
+    doc.text(`Généré le ${generatedOn}`, pageWidth - marginX, 74, { align: "right" });
+  };
+
+  drawHeaderBand();
+  let y = 118;
+
+  /* ---- Global score card + stat boxes ---- */
+  doc.setFillColor(...hexToRgb(scoreColor));
+  doc.roundedRect(marginX, y, 110, 70, 6, 6, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.text("SECURITY SCORE", marginX + 55, y + 16, { align: "center" });
+  doc.setFontSize(26);
+  doc.text(`${score}`, marginX + 55, y + 42, { align: "center" });
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.text("/ 100", marginX + 55, y + 56, { align: "center" });
+
+  const statBoxes = [
+    { label: "ROUTES SCANNED", value: `${totalEndpoints}`, color: "#2563eb" },
+    { label: "VULNERABILITIES", value: `${totalFindings}`, color: "#2563eb" },
+    { label: "CRITICAL", value: `${criticalCount}`, color: "#dc2626" },
+    { label: "AFFECTED ROUTES", value: `${affectedRoutes}/${totalEndpoints}`, color: "#ea580c" },
+  ];
+
+  const boxGap = 10;
+  const boxW = (contentWidth - 110 - 16 - boxGap * (statBoxes.length - 1)) / statBoxes.length;
+  let boxX = marginX + 110 + 16;
+  statBoxes.forEach((box) => {
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(...hexToRgb(box.color));
+    doc.setLineWidth(1);
+    doc.roundedRect(boxX, y, boxW, 70, 6, 6, "FD");
+    doc.setTextColor(...hexToRgb(box.color));
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.text(box.value, boxX + boxW / 2, y + 38, { align: "center" });
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text(box.label, boxX + boxW / 2, y + 56, { align: "center", maxWidth: boxW - 8 });
+    boxX += boxW + boxGap;
+  });
+
+  y += 100;
+
+  /* ---- Severity breakdown bars ---- */
+  doc.setTextColor(30, 41, 59);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("Répartition par sévérité", marginX, y);
+  y += 16;
+
+  const barX = marginX + 75;
+  const barW = contentWidth - 75 - 40;
+  ["CRITICAL", "HIGH", "MEDIUM", "LOW"].forEach((level) => {
+    const count = severityCounts[level] || 0;
+    const total = totalEndpoints || 1;
+    const ratio = Math.min(count / total, 1);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(...hexToRgb(SEVERITY_COLORS[level]));
+    doc.text(level, marginX, y + 6);
+    doc.setFillColor(226, 232, 240);
+    doc.roundedRect(barX, y, barW, 8, 4, 4, "F");
+    if (count > 0) {
+      doc.setFillColor(...hexToRgb(SEVERITY_COLORS[level]));
+      doc.roundedRect(barX, y, Math.max(barW * ratio, 10), 8, 4, 4, "F");
+    }
+    doc.setTextColor(30, 41, 59);
+    doc.setFont("helvetica", "bold");
+    doc.text(`${count}`, barX + barW + 12, y + 7);
+    y += 18;
+  });
+
+  y += 10;
+
+  /* ---- OWASP coverage ---- */
+  if (presentOwaspCoverage.length > 0) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(30, 41, 59);
+    doc.text("Couverture OWASP API Top 10", marginX, y);
+    y += 8;
+    autoTable(doc, {
+      startY: y,
+      margin: { left: marginX, right: marginX },
+      head: [["Code", "Catégorie"]],
+      body: presentOwaspCoverage.map((c) => [c.code, c.label]),
+      theme: "plain",
+      styles: { fontSize: 8, cellPadding: 5, textColor: [51, 65, 85], lineColor: [226, 232, 240], lineWidth: 0.5 },
+      headStyles: { fillColor: hexToRgb("#1d4ed8"), textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: { 0: { cellWidth: 80, fontStyle: "bold" } },
+    });
+    y = doc.lastAutoTable.finalY + 22;
+  }
+
+  /* ---- Detailed findings table ---- */
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(30, 41, 59);
+  doc.text(`Findings détaillés (${totalFindings})`, marginX, y);
+  y += 8;
+
+  if (totalFindings === 0) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Aucune vulnérabilité détectée sur ce projet.", marginX, y + 16);
+  } else {
+    const rows = [...allAudits]
+      .sort((a, b) => (RISK_LEVEL_SCORE[b.riskLevel] || 0) - (RISK_LEVEL_SCORE[a.riskLevel] || 0))
+      .map((a) => [
+        a.method,
+        a.path,
+        a.riskLevel,
+        owaspCodeOf(a.owaspCategory) || "—",
+        a.vulnerability || "—",
+        a.remediation || "—",
+      ]);
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: marginX, right: marginX, bottom: 40 },
+      head: [["Méthode", "Route", "Sévérité", "OWASP", "Vulnérabilité", "Remédiation"]],
+      body: rows,
+      theme: "striped",
+      styles: { fontSize: 7.5, cellPadding: 5, overflow: "linebreak", valign: "top", lineColor: [226, 232, 240] },
+      headStyles: { fillColor: hexToRgb("#1d4ed8"), textColor: 255, fontStyle: "bold", fontSize: 8 },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: {
+        0: { cellWidth: 42 },
+        1: { cellWidth: 88 },
+        2: { cellWidth: 48 },
+        3: { cellWidth: 48 },
+        4: { cellWidth: 122 },
+        5: { cellWidth: 122 },
+      },
+      didParseCell: (data) => {
+        if (data.section !== "body") return;
+        if (data.column.index === 2) {
+          const color = SEVERITY_COLORS[data.cell.raw] || "#64748b";
+          data.cell.styles.textColor = hexToRgb(color);
+          data.cell.styles.fillColor = tint(color, 0.85);
+          data.cell.styles.fontStyle = "bold";
+        }
+        if (data.column.index === 0) {
+          const color = METHOD_COLORS[data.cell.raw] || "#64748b";
+          data.cell.styles.textColor = hexToRgb(color);
+          data.cell.styles.fontStyle = "bold";
+        }
+      },
+    });
+  }
+
+  /* ---- Footer + page numbers on every page ---- */
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(148, 163, 184);
+    doc.text("API Sentinel — Confidential security audit report", marginX, pageHeight - 20);
+    doc.text(`Page ${i} / ${pageCount}`, pageWidth - marginX, pageHeight - 20, { align: "right" });
+  }
+
+  const safeName = (project.projectName || "audit").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  doc.save(`${safeName}-security-report.pdf`);
+}
 
 /* ---------------- Score Gauge Component ---------------- */
 function ScoreGauge({ score, size = 130 }) {
@@ -62,14 +333,7 @@ function ScoreGauge({ score, size = 130 }) {
   return (
     <div className="relative grid place-items-center" style={{ width: size, height: size }}>
       <svg className="size-full -rotate-90 transform" viewBox={`0 0 ${size} ${size}`}>
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          className="stroke-slate-200"
-          strokeWidth={strokeWidth}
-          fill="transparent"
-        />
+        <circle cx={size / 2} cy={size / 2} r={radius} className="stroke-slate-200" strokeWidth={strokeWidth} fill="transparent" />
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -91,35 +355,32 @@ function ScoreGauge({ score, size = 130 }) {
 }
 
 /* ---------------- Endpoint Card ---------------- */
-function EndpointCard({ endpoint, audit, onClick }) {
+function EndpointCard({ endpoint, onClick }) {
+  const audit = worstAuditOf(endpoint);
   const methodColor = METHOD_COLORS[endpoint.method] || "#64748b";
   const severityColor = audit ? SEVERITY_COLORS[audit.riskLevel] : "#16a34a";
-  const riskScore = audit?.riskScore || 0;
+  const riskScore = riskScoreOf(audit);
+  const findingsCount = endpoint.auditResults?.length || 0;
 
   return (
     <div
       onClick={onClick}
-      className="group relative cursor-pointer bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md border border-blue-200/80 rounded-xl p-4 flex flex-col justify-between shadow-[0_4px_20px_-4px_rgba(59,130,246,0.08),inset_0_1px_1px_rgba(255,255,255,0.9)] transition-all duration-300 hover:border-blue-400 hover:shadow-lg hover:-translate-y-0.5"
+      className={cn(
+        "group relative bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md border border-blue-200/80 rounded-xl p-4 flex flex-col justify-between shadow-[0_4px_20px_-4px_rgba(59,130,246,0.08),inset_0_1px_1px_rgba(255,255,255,0.9)] transition-all duration-300 hover:border-blue-400 hover:shadow-lg hover:-translate-y-0.5",
+        audit ? "cursor-pointer" : "cursor-default"
+      )}
     >
       <div className="flex items-center justify-between mb-3">
         <span
           className="font-mono text-[10px] font-bold px-2 py-0.5 rounded border"
-          style={{
-            color: methodColor,
-            backgroundColor: `${methodColor}12`,
-            borderColor: `${methodColor}30`,
-          }}
+          style={{ color: methodColor, backgroundColor: `${methodColor}12`, borderColor: `${methodColor}30` }}
         >
           {endpoint.method}
         </span>
         {audit ? (
           <span
             className="font-mono text-[10px] font-bold px-2 py-0.5 rounded border flex items-center gap-1"
-            style={{
-              color: severityColor,
-              backgroundColor: `${severityColor}12`,
-              borderColor: `${severityColor}30`,
-            }}
+            style={{ color: severityColor, backgroundColor: `${severityColor}12`, borderColor: `${severityColor}30` }}
           >
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: severityColor }} />
             {audit.riskLevel}
@@ -141,162 +402,160 @@ function EndpointCard({ endpoint, audit, onClick }) {
       </div>
 
       <div className="flex items-center gap-1.5 flex-wrap mb-4">
-        {(audit?.owaspCodes || ["API1:2023", "API3:2023"]).map((code) => (
-          <span
-            key={code}
-            className="text-[9px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-100/80 border border-slate-200 text-slate-600"
-          >
-            {code}
+        {audit && owaspCodeOf(audit.owaspCategory) && (
+          <span className="text-[9px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-100/80 border border-slate-200 text-slate-600">
+            {owaspCodeOf(audit.owaspCategory)}
           </span>
-        ))}
+        )}
       </div>
 
       <div className="space-y-3">
         <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-500"
-            style={{
-              width: `${riskScore || (audit ? 75 : 10)}%`,
-              backgroundColor: severityColor,
-            }}
+            style={{ width: `${riskScore || (audit ? 75 : 10)}%`, backgroundColor: severityColor }}
           />
         </div>
-
         <div className="border-b border-slate-200/60" />
-
         <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-          <span>{audit ? `2 findings · risque ${riskScore}/100` : "0 findings · sécurisé"}</span>
-          <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 transition-colors" />
+          <span>
+            {findingsCount > 0
+              ? `${findingsCount} finding${findingsCount > 1 ? "s" : ""} · risque ${riskScore}/100`
+              : "0 finding · sécurisé"}
+          </span>
+          {audit && <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 transition-colors" />}
         </div>
       </div>
     </div>
   );
 }
 
-/* ---------------- Modal Pop-up Component ---------------- */
-function EndpointModal({ endpoint, audit, onClose }) {
-  if (!endpoint) return null;
+/* ---------------- Audit In-Progress Screen ---------------- */
+const AUDIT_STEPS = [
+  "Analyse du contrat par l'IA (Gemini)…",
+  "Détection des vulnérabilités OWASP…",
+  "Calcul du score de sécurité…",
+];
+const AUDIT_STEP_INTERVAL_MS = 15_000;
 
-  const methodColor = METHOD_COLORS[endpoint.method] || "#64748b";
-  const riskLevel = audit?.riskLevel || "INFO";
-  const sevColor = SEVERITY_COLORS[riskLevel] || "#64748b";
+function formatElapsed(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const mm = Math.floor(totalSec / 60);
+  const ss = String(totalSec % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function auditCornerClasses(position) {
+  return `absolute w-3.5 h-3.5 border-[1.5px] border-blue-500 transition-colors duration-200 ${position}`;
+}
+
+function AuditProgressScreen({ projectName, endpointCount, error, onRetry }) {
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [activeStep, setActiveStep] = useState(0);
+
+  useEffect(() => {
+    if (error) return;
+    const t0 = Date.now();
+    const clock = setInterval(() => setElapsedMs(Date.now() - t0), 250);
+    return () => clearInterval(clock);
+  }, [error]);
+
+  useEffect(() => {
+    if (error) return;
+    const id = setInterval(() => {
+      setActiveStep((s) => Math.min(s + 1, AUDIT_STEPS.length - 1));
+    }, AUDIT_STEP_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [error]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-2xl rounded-2xl border border-blue-200/80 bg-white/95 backdrop-blur-md p-6 text-slate-800 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="absolute right-4 top-4 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-        >
-          <X className="size-4" />
-        </button>
+    <div className="relative min-h-screen w-full bg-[#eef2f8] text-slate-900 font-mono flex items-center justify-center px-6 overflow-hidden">
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <GridPattern
+          width={20}
+          height={20}
+          x={-1}
+          y={-1}
+          className={cn("stroke-blue-500/20", "[mask-image:linear-gradient(to_bottom_right,white,transparent_40%,transparent_60%,white)]")}
+        />
+      </div>
 
-        {/* Modal Header */}
-        <div className="space-y-3 pr-8">
-          <div className="flex items-center gap-3 font-mono text-xs">
-            <span
-              className="rounded border px-2 py-0.5 font-bold tracking-wider"
-              style={{
-                color: methodColor,
-                backgroundColor: `${methodColor}15`,
-                borderColor: `${methodColor}30`,
-              }}
+      <div
+        className={cn(
+          "relative z-10 w-full max-w-md rounded-2xl text-left overflow-hidden p-8",
+          error
+            ? "border border-red-200 bg-red-50/95 shadow-[0_0_0_1px_rgba(220,38,38,0.06)]"
+            : "border border-blue-200 bg-blue-50/95 shadow-[0_0_0_1px_rgba(29,78,216,0.06)]"
+        )}
+      >
+        <span className={auditCornerClasses("top-0 left-0 rounded-tl-md border-r-0 border-b-0")} />
+        <span className={auditCornerClasses("top-0 right-0 rounded-tr-md border-l-0 border-b-0")} />
+        <span className={auditCornerClasses("bottom-0 left-0 rounded-bl-md border-r-0 border-t-0")} />
+        <span className={auditCornerClasses("bottom-0 right-0 rounded-br-md border-l-0 border-t-0")} />
+
+        {error ? (
+          <div className="relative z-10">
+            <div className="flex items-center gap-2.5 mb-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
+              <p className="text-sm font-medium text-red-800">Échec de l'analyse IA</p>
+            </div>
+            <p className="text-xs text-red-700/90 mb-6 ml-6.5 leading-relaxed">{error}</p>
+            <button
+              onClick={onRetry}
+              className="w-full px-3 py-2 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-1.5 text-xs"
             >
-              {endpoint.method}
-            </span>
-            <span className="text-slate-500 uppercase tracking-wider text-[11px] font-bold">
-              {audit ? "1 VULNÉRABILITÉ DÉTECTÉE" : "0 VULNÉRABILITÉS DÉTECTÉES"}
-            </span>
+              <RotateCw className="w-3.5 h-3.5" /> Relancer l'analyse
+            </button>
           </div>
-
-          <h2 className="font-mono text-base font-bold tracking-tight text-slate-900 break-all">
-            {endpoint.path}
-          </h2>
-        </div>
-
-        {/* Modal Body */}
-        <div className="mt-5 space-y-4 max-h-[65vh] overflow-y-auto pr-1">
-          {audit ? (
-            <div className="rounded-xl border border-blue-200/80 bg-slate-50/80 p-5 space-y-4 shadow-sm">
-              {/* Header Info */}
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="font-bold text-sm text-slate-900">
-                    {audit.vulnerability}
-                  </h3>
-                  <span className="font-mono text-[11px] text-slate-500">
-                    {audit.owaspCategory}
-                  </span>
-                </div>
-
-                <span
-                  className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[10px] tracking-wider uppercase font-bold shrink-0"
-                  style={{
-                    color: sevColor,
-                    backgroundColor: `${sevColor}15`,
-                    borderColor: `${sevColor}40`,
-                  }}
-                >
-                  <span className="size-1.5 rounded-full bg-current animate-pulse" />
-                  {audit.riskLevel}
-                </span>
+        ) : (
+          <div className="relative z-10">
+            <div className="flex items-start justify-between gap-4 mb-1">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Loader2 className="w-4 h-4 shrink-0 text-blue-600 animate-spin" />
+                <p className="text-sm font-medium text-blue-800 truncate">{AUDIT_STEPS[activeStep]}</p>
               </div>
+              <span className="text-xs tabular-nums text-blue-500 shrink-0 pt-0.5 font-medium">{formatElapsed(elapsedMs)}</span>
+            </div>
 
-              {/* Description */}
-              <p className="text-xs leading-relaxed text-slate-600 font-sans">
-                {audit.description}
-              </p>
+            <p className="text-[11px] text-blue-400/80 mb-5 ml-7 truncate">
+              {projectName} · {endpointCount} routes
+            </p>
 
-              {/* Remediation */}
-              {audit.remediation && (
-                <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3.5 text-xs space-y-1">
-                  <div className="flex items-center gap-2 font-mono text-[10px] font-bold text-emerald-800 tracking-wider uppercase">
-                    <CheckCircle2 className="size-3.5 text-emerald-600" /> RECOMMANDATION
-                  </div>
-                  <p className="pl-5 leading-relaxed text-emerald-950 font-sans">
-                    {audit.remediation}
-                  </p>
-                </div>
-              )}
-
-              {/* Test Scenario Details */}
-              {audit.testScenario && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3.5 text-xs space-y-2">
-                  <div className="flex items-center justify-between font-mono text-[10px] font-bold text-blue-900 tracking-wider uppercase">
-                    <span>SCÉNARIO DE TEST : {audit.testScenario.title}</span>
-                    <span className="text-blue-700">
-                      STATUT ATTENDU: {audit.testScenario.expectedStatusOnSuccess}
-                    </span>
-                  </div>
-
-                  {audit.testScenario.steps && (
-                    <ul className="list-disc list-inside space-y-1 text-slate-700 font-sans pl-1">
-                      {audit.testScenario.steps.map((step, idx) => (
-                        <li key={idx}>{step}</li>
-                      ))}
-                    </ul>
-                  )}
-
-                  {audit.testScenario.payloadExample && (
-                    <div className="mt-2">
-                      <span className="block font-mono text-[10px] text-slate-500 mb-1">
-                        EXEMPLE DE PAYLOAD:
+            <ul className="space-y-2.5 mb-6">
+              {AUDIT_STEPS.map((label, i) => {
+                const done = i < activeStep;
+                const active = i === activeStep;
+                return (
+                  <li
+                    key={label}
+                    className={cn(
+                      "flex items-center gap-2.5 text-xs transition-colors duration-300",
+                      done ? "text-blue-700" : active ? "text-blue-600" : "text-blue-300"
+                    )}
+                  >
+                    {done ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                    ) : (
+                      <span className={cn("w-3.5 h-3.5 shrink-0 flex items-center justify-center text-[10px] leading-none", active ? "text-blue-500" : "text-blue-200")}>
+                        –
                       </span>
-                      <pre className="p-2 bg-slate-900 text-slate-100 rounded text-[11px] font-mono overflow-x-auto whitespace-pre-wrap">
-                        {audit.testScenario.payloadExample}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              )}
+                    )}
+                    <span>{label}</span>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="h-0.5 bg-blue-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-600 transition-all duration-700 ease-out"
+                style={{ width: `${Math.max(((activeStep + 1) / AUDIT_STEPS.length) * 100, 8)}%` }}
+              />
             </div>
-          ) : (
-            <div className="text-center py-8 text-slate-500 text-xs font-mono">
-              Aucune vulnérabilité ou audit disponible pour cette route.
-            </div>
-          )}
-        </div>
+
+            <p className="text-[10px] text-blue-400 mt-4 text-center">L'analyse IA peut prendre jusqu'à une minute.</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -305,11 +564,8 @@ function EndpointModal({ endpoint, audit, onClose }) {
 /* ---------------- Format Relative Time ---------------- */
 function formatRelativeTime(timestamp) {
   if (!timestamp) return "À l'instant";
-
-  // Standardize SQL format "YYYY-MM-DD HH:MM:SS" into ISO format "YYYY-MM-DDTHH:MM:SS"
   const isoString = typeof timestamp === "string" ? timestamp.replace(" ", "T") : timestamp;
   const date = new Date(isoString);
-
   if (isNaN(date.getTime())) return "À l'instant";
 
   const now = new Date();
@@ -317,38 +573,121 @@ function formatRelativeTime(timestamp) {
 
   if (diffInSeconds < 5) return "À l'instant";
   if (diffInSeconds < 60) return `il y a ${diffInSeconds} sec`;
-
   const diffInMinutes = Math.floor(diffInSeconds / 60);
   if (diffInMinutes < 60) return `il y a ${diffInMinutes} min`;
-
   const diffInHours = Math.floor(diffInMinutes / 60);
   if (diffInHours < 24) return `il y a ${diffInHours} h`;
-
   const diffInDays = Math.floor(diffInHours / 24);
   if (diffInDays < 30) return `il y a ${diffInDays} j`;
-
   const diffInMonths = Math.floor(diffInDays / 30);
   if (diffInMonths < 12) return `il y a ${diffInMonths} mois`;
-
   const diffInYears = Math.floor(diffInDays / 365);
   return `il y a ${diffInYears} an${diffInYears > 1 ? "s" : ""}`;
+}
+
+/* ---------------- Header (inline, no AppHeader needed) ---------------- */
+function DashboardHeader({ scanComplete, onExport, onNewAnalysis }) {
+  const navigate = useNavigate();
+  return (
+    <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-blue-200/60 pb-4">
+      <div className="flex items-center gap-3">
+        <div className="p-2 bg-white/90 border border-blue-200 rounded-lg text-blue-700 shadow-sm">
+          <Shield className="w-5 h-5" />
+        </div>
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="font-extrabold text-base tracking-tight text-blue-800 uppercase">API SENTINEL</span>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider">SECURITY AUDIT CONSOLE</span>
+          </div>
+          <nav className="flex items-center gap-4 mt-1 text-xs font-semibold">
+            <span className="text-blue-700">Dashboard</span>
+            <button onClick={() => navigate("/history")} className="text-slate-500 hover:text-blue-700 transition-colors">
+              History
+            </button>
+            <button onClick={() => navigate("/owasp")} className="text-slate-500 hover:text-blue-700 transition-colors">OWASP</button>
+          </nav>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        {scanComplete && (
+          <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-700 font-bold text-[10px] border border-emerald-500/20 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            SCAN TERMINÉ
+          </span>
+        )}
+        <button
+          onClick={onExport}
+          className="px-3 py-1.5 rounded-lg bg-white/90 border border-blue-200 text-slate-700 hover:bg-blue-50 transition-colors flex items-center gap-1.5 shadow-sm text-xs"
+        >
+          <Download className="w-3.5 h-3.5" /> Exporter
+        </button>
+        <button
+          onClick={onNewAnalysis}
+          className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-sm text-xs"
+        >
+          <RotateCw className="w-3.5 h-3.5" /> Nouvelle analyse
+        </button>
+      </div>
+    </header>
+  );
 }
 
 /* ---------------- Main Dashboard Page ---------------- */
 function DashboardPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+
   const [project, setProject] = useState(null);
+  const [loadingProject, setLoadingProject] = useState(true);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState(null);
   const [search, setSearch] = useState("");
   const [severityFilter, setSeverityFilter] = useState(null);
   const [methodFilter, setMethodFilter] = useState(null);
-  const [selectedEndpoint, setSelectedEndpoint] = useState(null);
+
+  // Always (re)fetch the full, hydrated project from the backend — never trust
+  // a project object carried in navigation state, since it may have been
+  // captured before the audit ran and would have empty endpoint.auditResults.
+  const loadProject = () => {
+    setLoadingProject(true);
+    return api
+      .get(`/api/projects/${projectId}`)
+      .then((res) => {
+        setProject(res.data);
+        return res.data;
+      })
+      .finally(() => setLoadingProject(false));
+  };
 
   useEffect(() => {
-    api.get(`/api/projects/${projectId}`).then((res) => setProject(res.data));
+    loadProject();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  if (!project) {
+  const runAudit = () => {
+    setAuditLoading(true);
+    setAuditError(null);
+    api
+      .post(`/api/projects/${projectId}/audit`)
+      .then(() => loadProject()) // refetch so endpoints[].auditResults are hydrated
+      .catch((err) => {
+        setAuditError(err.response?.data?.message || "L'analyse IA a échoué. Réessayez dans un instant.");
+      })
+      .finally(() => setAuditLoading(false));
+  };
+
+  // If we've loaded a project that has never been scored, trigger the audit
+  // automatically (covers: fresh import, or landing here via a stale nav state).
+  useEffect(() => {
+    if (project && project.globalSecurityScore == null && !auditLoading && !auditError) {
+      runAudit();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project]);
+
+  if (loadingProject && !project) {
     return (
       <div className="min-h-screen bg-[#eef2f8] flex flex-col items-center justify-center font-mono text-slate-500 gap-3">
         <Activity className="w-6 h-6 animate-spin text-blue-600" />
@@ -357,23 +696,51 @@ function DashboardPage() {
     );
   }
 
-  const auditByPath = Object.fromEntries(
-    (mockAudit.auditResults || []).map((a) => [a.path, a])
-  );
+  if (!project || project.globalSecurityScore == null) {
+    return (
+      <AuditProgressScreen
+        projectName={project?.projectName}
+        endpointCount={project?.endpoints?.length || 0}
+        error={auditError}
+        onRetry={runAudit}
+      />
+    );
+  }
 
-  const filteredEndpoints = (project.endpoints || []).filter((ep) => {
-    const audit = auditByPath[ep.path];
+  const endpoints = project.endpoints || [];
+  const allAudits = endpoints.flatMap((ep) => ep.auditResults || []);
+
+  const filteredEndpoints = endpoints.filter((ep) => {
+    const audit = worstAuditOf(ep);
     if (search && !ep.path.toLowerCase().includes(search.toLowerCase())) return false;
     if (severityFilter && audit?.riskLevel !== severityFilter) return false;
     if (methodFilter && ep.method !== methodFilter) return false;
     return true;
   });
 
-  const topRiskyEndpoints = (project.endpoints || [])
-    .map((ep) => ({ ...ep, audit: auditByPath[ep.path] }))
+  const topRiskyEndpoints = endpoints
+    .map((ep) => ({ ...ep, audit: worstAuditOf(ep) }))
     .filter((ep) => ep.audit)
-    .sort((a, b) => (b.audit?.riskScore || 0) - (a.audit?.riskScore || 0))
+    .sort((a, b) => riskScoreOf(b.audit) - riskScoreOf(a.audit))
     .slice(0, 5);
+
+  const maxRiskScore = allAudits.reduce((max, a) => Math.max(max, riskScoreOf(a)), 0);
+  const severityCounts = allAudits.reduce((acc, a) => {
+    acc[a.riskLevel] = (acc[a.riskLevel] || 0) + 1;
+    return acc;
+  }, {});
+
+  const totalFindings = allAudits.length;
+  const totalEndpointsCount = endpoints.length;
+  const affectedRoutesCount = endpoints.filter((ep) => (ep.auditResults || []).length > 0).length;
+  const findingsDensity = totalEndpointsCount > 0 ? (totalFindings / totalEndpointsCount).toFixed(1) : "0.0";
+  const remediationCount = allAudits.filter((a) => a.remediation).length;
+  const criticalCount = severityCounts.CRITICAL || 0;
+
+  // Only show OWASP categories that actually have findings in this project,
+  // instead of a fixed/random subset of the Top 10.
+  const owaspCodesPresent = new Set(allAudits.map((a) => owaspCodeOf(a.owaspCategory)).filter(Boolean));
+  const presentOwaspCoverage = ALL_OWASP_CATEGORIES.filter((c) => owaspCodesPresent.has(c.code));
 
   return (
     <div className="relative min-h-screen w-full bg-[#eef2f8] text-slate-900 font-mono px-6 py-8 overflow-x-hidden">
@@ -383,48 +750,16 @@ function DashboardPage() {
           height={20}
           x={-1}
           y={-1}
-          className={cn(
-            "stroke-blue-500/20",
-            "[mask-image:linear-gradient(to_bottom_right,white,transparent_40%,transparent_60%,white)]"
-          )}
+          className={cn("stroke-blue-500/20", "[mask-image:linear-gradient(to_bottom_right,white,transparent_40%,transparent_60%,white)]")}
         />
       </div>
 
       <div className="relative z-10 max-w-7xl mx-auto space-y-5">
-        {/* Top Header */}
-        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-blue-200/60 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/90 border border-blue-200 rounded-lg text-blue-700 shadow-sm">
-              <Shield className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-base tracking-tight text-blue-800 uppercase">
-                  API SENTINEL
-                </span>
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider">
-                  SECURITY AUDIT CONSOLE
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-700 font-bold text-[10px] border border-emerald-500/20 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              SCAN TERMINÉ
-            </span>
-            <button className="px-3 py-1.5 rounded-lg bg-white/90 border border-blue-200 text-slate-700 hover:bg-blue-50 transition-colors flex items-center gap-1.5 shadow-sm text-xs">
-              <Download className="w-3.5 h-3.5" /> Exporter
-            </button>
-            <button
-              onClick={() => navigate("/")} // Change "/upload" to your route path if different (e.g. "/import")
-              className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-sm text-xs"
-            >
-              <RotateCw className="w-3.5 h-3.5" /> Nouvelle analyse
-            </button>
-          </div>
-        </header>
+        <DashboardHeader
+          scanComplete={!auditLoading}
+          onExport={() => generateAuditPdf(project)}
+          onNewAnalysis={() => navigate("/")}
+        />
 
         {/* HERO CARD */}
         <section className="relative overflow-hidden rounded-2xl border border-blue-200/80 bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md p-6 shadow-[0_4px_20px_-4px_rgba(59,130,246,0.08),inset_0_1px_1px_rgba(255,255,255,0.9)]">
@@ -432,7 +767,7 @@ function DashboardPage() {
 
           <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-6">
-              <ScoreGauge score={mockAudit.globalSecurityScore} size={130} />
+              <ScoreGauge score={project.globalSecurityScore ?? 0} size={130} />
               <div className="space-y-2">
                 <p className="flex items-center gap-1.5 font-mono text-[11px] font-bold tracking-wider text-blue-600 uppercase">
                   <Radar className="size-3.5 text-blue-600" /> CIBLES ANALYSÉES
@@ -442,9 +777,7 @@ function DashboardPage() {
                 </h1>
                 <div className="flex flex-wrap items-center gap-2 pt-1 font-mono text-[11px]">
                   <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200/80 bg-white/80 px-2.5 py-1 text-slate-600 shadow-sm">
-                    {formatRelativeTime(
-                      project.scan_date || project.scanDate || project.lastScanDate || mockAudit.scannedAt
-                    )}
+                    {formatRelativeTime(project.scanDate)}
                   </span>
                   <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200/80 bg-white/80 px-2.5 py-1 text-slate-600 shadow-sm">
                     <Lock className="size-3 text-blue-600" /> OWASP API Top 10 · 2023
@@ -456,44 +789,26 @@ function DashboardPage() {
               </div>
             </div>
 
-            {/* Target KPI Group */}
             <div className="grid grid-cols-2 divide-x divide-y divide-blue-200/60 overflow-hidden rounded-xl border border-blue-200/80 bg-white/60 sm:grid-cols-4 sm:divide-y-0 shadow-sm">
               <div className="p-4">
                 <Network className="size-4 text-blue-600" />
-                <p className="mt-3 font-mono text-2xl font-bold tabular-nums text-slate-900">
-                  {project.endpoints?.length || 0}
-                </p>
-                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-slate-500 uppercase">
-                  ROUTES SCANNÉES
-                </p>
+                <p className="mt-3 font-mono text-2xl font-bold tabular-nums text-slate-900">{totalEndpointsCount}</p>
+                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-slate-500 uppercase">ROUTES SCANNÉES</p>
               </div>
-
               <div className="p-4">
                 <Bug className="size-4 text-blue-600" />
-                <p className="mt-3 font-mono text-2xl font-bold tabular-nums text-slate-900">
-                  {mockAudit.auditResults?.length || 0}
-                </p>
-                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-slate-500 uppercase">
-                  VULNÉRABILITÉS
-                </p>
+                <p className="mt-3 font-mono text-2xl font-bold tabular-nums text-slate-900">{totalFindings}</p>
+                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-slate-500 uppercase">VULNÉRABILITÉS</p>
               </div>
-
               <div className="p-4 bg-red-50/20">
                 <AlertTriangle className="size-4 text-red-600" />
-                <p className="mt-3 font-mono text-2xl font-bold tabular-nums text-red-600">
-                  {mockAudit.summary?.criticalRisks || 0}
-                </p>
-                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-red-600 uppercase">
-                  CRITIQUES
-                </p>
+                <p className="mt-3 font-mono text-2xl font-bold tabular-nums text-red-600">{criticalCount}</p>
+                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-red-600 uppercase">CRITIQUES</p>
               </div>
-
               <div className="p-4 bg-amber-50/20">
                 <Activity className="size-4 text-amber-600" />
-                <p className="mt-3 font-mono text-2xl font-bold tabular-nums text-amber-600">94</p>
-                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-amber-600 uppercase">
-                  RISQUE MAX
-                </p>
+                <p className="mt-3 font-mono text-2xl font-bold tabular-nums text-amber-600">{maxRiskScore}</p>
+                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-amber-600 uppercase">RISQUE MAX</p>
               </div>
             </div>
           </div>
@@ -503,26 +818,18 @@ function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           <div className="bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md border border-blue-200/80 rounded-2xl p-5 shadow-[0_4px_20px_-4px_rgba(59,130,246,0.08),inset_0_1px_1px_rgba(255,255,255,0.9)] flex flex-col justify-between">
             <div>
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
-                RÉPARTITION PAR SÉVÉRITÉ
-              </div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">RÉPARTITION PAR SÉVÉRITÉ</div>
               <div className="space-y-2 mb-6">
                 {["CRITICAL", "HIGH", "MEDIUM", "LOW"].map((level) => {
-                  const count = mockAudit.summary?.[`${level.toLowerCase()}Risks`] || 0;
-                  const totalEndpoints = project.endpoints?.length || 1;
+                  const count = severityCounts[level] || 0;
+                  const total = totalEndpointsCount || 1;
                   return (
                     <div key={level} className="flex items-center gap-3 text-xs">
                       <span className="w-16 font-bold text-[10px]" style={{ color: SEVERITY_COLORS[level] }}>
                         {level}
                       </span>
                       <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full"
-                          style={{
-                            width: `${(count / totalEndpoints) * 100}%`,
-                            backgroundColor: SEVERITY_COLORS[level],
-                          }}
-                        />
+                        <div className="h-full rounded-full" style={{ width: `${(count / total) * 100}%`, backgroundColor: SEVERITY_COLORS[level] }} />
                       </div>
                       <span className="w-4 text-right font-bold text-slate-700">{count}</span>
                     </div>
@@ -530,24 +837,11 @@ function DashboardPage() {
                 })}
               </div>
             </div>
-
             <div className="pt-4 border-t border-blue-100/80 space-y-1.5 text-xs">
-              <div className="flex justify-between text-slate-500">
-                <span>Findings totaux</span>
-                <span className="font-bold text-slate-800">8</span>
-              </div>
-              <div className="flex justify-between text-slate-500">
-                <span>Routes affectées</span>
-                <span className="font-bold text-slate-800">6/6</span>
-              </div>
-              <div className="flex justify-between text-slate-500">
-                <span>Densité</span>
-                <span className="font-bold text-slate-800">1.3 / route</span>
-              </div>
-              <div className="flex justify-between text-slate-500">
-                <span>Correctifs proposés</span>
-                <span className="font-bold text-slate-800">8</span>
-              </div>
+              <div className="flex justify-between text-slate-500"><span>Findings totaux</span><span className="font-bold text-slate-800">{totalFindings}</span></div>
+              <div className="flex justify-between text-slate-500"><span>Routes affectées</span><span className="font-bold text-slate-800">{affectedRoutesCount}/{totalEndpointsCount}</span></div>
+              <div className="flex justify-between text-slate-500"><span>Densité</span><span className="font-bold text-slate-800">{findingsDensity} / route</span></div>
+              <div className="flex justify-between text-slate-500"><span>Correctifs proposés</span><span className="font-bold text-slate-800">{remediationCount}</span></div>
             </div>
           </div>
 
@@ -557,21 +851,35 @@ function DashboardPage() {
                 <AlertTriangle className="w-3.5 h-3.5 text-orange-500" /> ROUTES LES PLUS À RISQUE
               </div>
               <div className="divide-y divide-blue-100/80">
-                {topRiskyEndpoints.map((ep) => (
-                  <div
-                    key={ep.id}
-                    onClick={() => setSelectedEndpoint(ep)}
-                    className="flex items-center justify-between py-2.5 px-1 hover:bg-blue-50/50 cursor-pointer transition-colors rounded-md"
-                  >
-                    <div className="flex items-center gap-2.5 overflow-hidden">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
-                      <span className="truncate text-slate-700 font-bold text-xs">{ep.path}</span>
+                {topRiskyEndpoints.map((ep) => {
+                  const audit = ep.audit;
+                  const severityColor = audit
+                    ? audit.riskLevel === "CRITICAL"
+                      ? SEVERITY_COLORS.CRITICAL
+                      : audit.riskLevel === "HIGH"
+                      ? SEVERITY_COLORS.HIGH
+                      : audit.riskLevel === "MEDIUM"
+                      ? SEVERITY_COLORS.MEDIUM
+                      : SEVERITY_COLORS.LOW
+                    : "#94a3b8";
+
+                  return (
+                    <div
+                      key={ep.id}
+                      onClick={() => navigate(`/dashboard/${project.id}/findings/${ep.id}/${ep.audit.id}`, { state: { project } })}
+                      className="flex items-center justify-between py-2.5 px-1 hover:bg-blue-50/50 cursor-pointer transition-colors rounded-md"
+                    >
+                      <div className="flex items-center gap-2.5 overflow-hidden">
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: severityColor }} />
+                        <span className="truncate font-bold text-xs" style={{ color: severityColor }}>{ep.path}</span>
+                      </div>
+                      <span className="font-mono font-bold text-xs ml-2 shrink-0" style={{ color: severityColor }}>{riskScoreOf(ep.audit)}</span>
                     </div>
-                    <span className="font-mono font-bold text-red-600 text-xs ml-2 shrink-0">
-                      {ep.audit?.riskScore || 88}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
+                {topRiskyEndpoints.length === 0 && (
+                  <p className="text-xs text-slate-400 py-2">Aucune route à risque.</p>
+                )}
               </div>
             </div>
           </div>
@@ -582,29 +890,27 @@ function DashboardPage() {
                 <ShieldAlert className="w-3.5 h-3.5 text-blue-600" /> COUVERTURE OWASP
               </div>
               <div className="space-y-2">
-                {OWASP_COVERAGE.map((item) => {
+                {presentOwaspCoverage.map((item) => {
                   const Icon = item.icon;
                   return (
-                    <div
-                      key={item.code}
-                      className="flex items-center justify-between p-2 rounded-xl bg-slate-50/80 border border-slate-200/80 hover:border-blue-300 hover:bg-blue-50/50 transition-all shadow-sm"
-                    >
+                    <div key={item.code} className="flex items-center justify-between p-2 rounded-xl bg-slate-50/80 border border-slate-200/80 hover:border-blue-300 hover:bg-blue-50/50 transition-all shadow-sm">
                       <div className="flex items-center gap-2.5 truncate text-slate-700">
                         <Icon className="w-4 h-4 text-slate-400 shrink-0" />
                         <span className="truncate text-xs font-semibold text-slate-800">{item.label}</span>
                       </div>
-                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-500 shrink-0">
-                        {item.code}
-                      </span>
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-500 shrink-0">{item.code}</span>
                     </div>
                   );
                 })}
+                {presentOwaspCoverage.length === 0 && (
+                  <p className="text-xs text-slate-400 py-2">Aucune catégorie OWASP concernée.</p>
+                )}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Pipeline Bar */}
+        {/* Pipeline Bar
         <div className="bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md border border-blue-200/80 rounded-xl px-5 py-3 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9)]">
           <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-blue-600" /> PIPELINE D'ANALYSE
@@ -614,32 +920,40 @@ function DashboardPage() {
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
               <div>
                 <div className="font-bold text-slate-800 text-[11px]">Parsing du contrat OpenAPI</div>
-                <div className="text-[10px] text-slate-400">{project.endpoints?.length || 0} routes · 18 schémas</div>
+                <div className="text-[10px] text-slate-400">{totalEndpointsCount} routes détectées</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span className={cn("w-2 h-2 rounded-full", auditError ? "bg-red-500" : auditLoading ? "bg-amber-500 animate-pulse" : "bg-emerald-500")} />
               <div>
-                <div className="font-bold text-slate-800 text-[11px]">Analyse statique des schémas</div>
-                <div className="text-[10px] text-slate-400">42 règles appliquées</div>
+                <div className="font-bold text-slate-800 text-[11px]">Analyse IA (Gemini)</div>
+                <div className="text-[10px] text-slate-400">{auditError ? "Échec de l'analyse" : auditLoading ? "En cours…" : "Terminée"}</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span className={cn("w-2 h-2 rounded-full", auditError ? "bg-red-500" : auditLoading ? "bg-slate-300" : "bg-emerald-500")} />
               <div>
                 <div className="font-bold text-slate-800 text-[11px]">Corrélations OWASP Top 10</div>
-                <div className="text-[10px] text-slate-400">{mockAudit.auditResults?.length || 0} findings retenus</div>
+                <div className="text-[10px] text-slate-400">{auditLoading ? "En attente…" : `${totalFindings} finding${totalFindings > 1 ? "s" : ""} retenu${totalFindings > 1 ? "s" : ""}`}</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span className={cn("w-2 h-2 rounded-full", auditError ? "bg-red-500" : auditLoading ? "bg-slate-300" : "bg-emerald-500")} />
               <div>
                 <div className="font-bold text-slate-800 text-[11px]">Scoring & priorisation</div>
-                <div className="text-[10px] text-slate-400">Score global {mockAudit.globalSecurityScore}/100</div>
+                <div className="text-[10px] text-slate-400">{auditLoading ? "En attente…" : `Score global ${project.globalSecurityScore}/100`}</div>
               </div>
             </div>
           </div>
-        </div>
+          {auditError && (
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              <span>{auditError}</span>
+              <button onClick={runAudit} className="shrink-0 px-2.5 py-1 rounded-md bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors text-[11px]">
+                Relancer
+              </button>
+            </div>
+          )}
+        </div> */}
 
         {/* Filter Bar */}
         <div className="bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md border border-blue-200/80 rounded-xl p-3 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
@@ -692,21 +1006,26 @@ function DashboardPage() {
               );
             })}
             <span className="text-[10px] text-slate-400 ml-2 font-bold">
-              {filteredEndpoints.length}/{project.endpoints?.length || 0} routes
+              {filteredEndpoints.length}/{totalEndpointsCount} routes
             </span>
           </div>
         </div>
 
-        {/* 3-Column Endpoint Cards Grid */}
+        {/* Endpoint Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredEndpoints.map((endpoint) => (
-            <EndpointCard
-              key={endpoint.id}
-              endpoint={endpoint}
-              audit={auditByPath[endpoint.path]}
-              onClick={() => setSelectedEndpoint(endpoint)}
-            />
-          ))}
+          {filteredEndpoints.map((endpoint) => {
+            const audit = worstAuditOf(endpoint);
+            return (
+              <EndpointCard
+                key={endpoint.id}
+                endpoint={endpoint}
+                onClick={() => {
+                  if (!audit) return;
+                  navigate(`/dashboard/${project.id}/findings/${endpoint.id}/${audit.id}`, { state: { project } });
+                }}
+              />
+            );
+          })}
         </div>
 
         {filteredEndpoints.length === 0 && (
@@ -716,12 +1035,6 @@ function DashboardPage() {
           </div>
         )}
       </div>
-
-      <EndpointModal
-        endpoint={selectedEndpoint}
-        audit={selectedEndpoint ? auditByPath[selectedEndpoint.path] : null}
-        onClose={() => setSelectedEndpoint(null)}
-      />
     </div>
   );
 }
