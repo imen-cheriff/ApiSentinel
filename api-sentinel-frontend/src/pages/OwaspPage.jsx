@@ -26,16 +26,76 @@ const RISK_LEVEL_SCORE = { CRITICAL: 95, HIGH: 75, MEDIUM: 50, LOW: 20 };
 
 // Full OWASP API Security Top 10 — 2023 edition (all 10 categories).
 const OWASP_COVERAGE = [
-  { label: "Broken Object Level Auth", code: "API1:2023", icon: Unlink },
-  { label: "Broken Authentication", code: "API2:2023", icon: Lock },
-  { label: "Broken Object Property Level Auth", code: "API3:2023", icon: Eye },
-  { label: "Unrestricted Resource Consumption", code: "API4:2023", icon: Server },
-  { label: "Broken Function Level Auth", code: "API5:2023", icon: Key },
-  { label: "Unrestricted Access to Sensitive Flows", code: "API6:2023", icon: Radar },
-  { label: "Server Side Request Forgery", code: "API7:2023", icon: Network },
-  { label: "Security Misconfiguration", code: "API8:2023", icon: Settings },
-  { label: "Improper Inventory Management", code: "API9:2023", icon: FileCheck },
-  { label: "Unsafe Consumption of APIs", code: "API10:2023", icon: Bug },
+  {
+    label: "Broken Object Level Auth",
+    code: "API1:2023",
+    icon: Unlink,
+    description:
+      "APIs expose endpoints that handle object identifiers. Attackers swap the ID in a request to access objects they shouldn't be able to reach.",
+  },
+  {
+    label: "Broken Authentication",
+    code: "API2:2023",
+    icon: Lock,
+    description:
+      "Authentication mechanisms are misimplemented, letting attackers compromise tokens or credentials and assume other users' identities.",
+  },
+  {
+    label: "Broken Object Property Level Auth",
+    code: "API3:2023",
+    icon: Eye,
+    description:
+      "Missing validation on individual object properties lets attackers read or modify sensitive fields they shouldn't have access to.",
+  },
+  {
+    label: "Unrestricted Resource Consumption",
+    code: "API4:2023",
+    icon: Server,
+    description:
+      "APIs consume compute, memory, and bandwidth per request. Without limits, attackers can exhaust resources and drive up costs or cause outages.",
+  },
+  {
+    label: "Broken Function Level Auth",
+    code: "API5:2023",
+    icon: Key,
+    description:
+      "Complex role hierarchies make it easy to miss checks on sensitive functions, letting attackers reach admin-only operations.",
+  },
+  {
+    label: "Unrestricted Access to Sensitive Flows",
+    code: "API6:2023",
+    icon: Radar,
+    description:
+      "Business-critical flows (checkout, signup, etc.) are exposed without limits on excessive or automated access, enabling abuse.",
+  },
+  {
+    label: "Server Side Request Forgery",
+    code: "API7:2023",
+    icon: Network,
+    description:
+      "The API fetches a remote resource from a user-supplied URL without validation, letting attackers redirect requests to internal systems.",
+  },
+  {
+    label: "Security Misconfiguration",
+    code: "API8:2023",
+    icon: Settings,
+    description:
+      "Insecure default settings, verbose errors, or missing hardening across the API stack open the door to a range of attacks.",
+  },
+  {
+    label: "Improper Inventory Management",
+    code: "API9:2023",
+    icon: FileCheck,
+    description:
+      "Outdated or undocumented API versions and hosts stay reachable and unpatched, widening the attack surface silently.",
+  },
+  {
+    label: "Unsafe Consumption of APIs",
+    code: "API10:2023",
+    icon: Bug,
+    description:
+      "Developers trust data from third-party APIs more than user input, applying weaker validation that attackers can exploit.",
+  },
 ];
 
 function riskScoreOf(audit) {
@@ -57,9 +117,9 @@ function OwaspCategoryCard({ category, findings, onOpenFinding }) {
     : [];
 
   return (
-    <div className="bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md border border-blue-200/80 rounded-2xl p-5 shadow-[0_4px_20px_-4px_rgba(59,130,246,0.08),inset_0_1px_1px_rgba(255,255,255,0.9)] flex flex-col justify-between">
+    <div className="group/card bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md border border-blue-200/80 rounded-2xl p-5 shadow-[0_4px_20px_-4px_rgba(59,130,246,0.08),inset_0_1px_1px_rgba(255,255,255,0.9)] flex flex-col justify-between">
       <div>
-        <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center justify-between gap-2 mb-1.5">
           <div className="flex items-center gap-2 text-slate-800 font-bold text-sm min-w-0">
             {hasFindings ? (
               <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
@@ -71,6 +131,15 @@ function OwaspCategoryCard({ category, findings, onOpenFinding }) {
           <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-500 shrink-0">
             {category.code}
           </span>
+        </div>
+
+        {/* Definition — small text under the title, revealed on hover */}
+        <div className="grid grid-rows-[0fr] group-hover/card:grid-rows-[1fr] transition-[grid-template-rows] duration-200 ease-out">
+          <div className="overflow-hidden">
+            <p className="text-[10.5px] leading-snug text-slate-400 font-mono pb-2">
+              {category.description}
+            </p>
+          </div>
         </div>
 
         <p className="text-[11px] text-slate-400 font-mono font-semibold uppercase tracking-wider mb-3">
