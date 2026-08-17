@@ -586,7 +586,7 @@ function formatRelativeTime(timestamp) {
 }
 
 /* ---------------- Header (inline, no AppHeader needed) ---------------- */
-function DashboardHeader({ scanComplete, onExport, onNewAnalysis }) {
+function DashboardHeader({ project, scanComplete, onExport, onNewAnalysis }) {
   const navigate = useNavigate();
   return (
     <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-blue-200/60 pb-4">
@@ -604,7 +604,7 @@ function DashboardHeader({ scanComplete, onExport, onNewAnalysis }) {
             <button onClick={() => navigate("/history")} className="text-slate-500 hover:text-blue-700 transition-colors">
               History
             </button>
-            <button onClick={() => navigate("/owasp")} className="text-slate-500 hover:text-blue-700 transition-colors">OWASP</button>
+            <button onClick={() => navigate(`/owasp/${project.id}`, { state: { project } })} className="text-slate-500 hover:text-blue-700 transition-colors">OWASP</button>
           </nav>
         </div>
       </div>
@@ -756,6 +756,7 @@ function DashboardPage() {
 
       <div className="relative z-10 max-w-7xl mx-auto space-y-5">
         <DashboardHeader
+          project={project}
           scanComplete={!auditLoading}
           onExport={() => generateAuditPdf(project)}
           onNewAnalysis={() => navigate("/")}
