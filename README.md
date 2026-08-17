@@ -39,8 +39,6 @@ Open the `api-sentinel-backend` folder in IntelliJ IDEA and run the Spring Boot 
 Or, from the backend terminal:
 
 ```bash
-mvn spring-boot:run
-# or
 .\mvnw.cmd spring-boot:run
 ```
 
