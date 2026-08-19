@@ -44,8 +44,8 @@ const METHOD_COLORS = {
   DELETE: "#dc2626",
 };
 
-// Pas de score numérique renvoyé par le backend au niveau d'un finding
-// (seulement riskLevel) — on en dérive un pour les barres/tri côté UI.
+// No numeric score is returned by the backend for a finding
+// (only riskLevel), so one is derived for UI bars and sorting.
 const RISK_LEVEL_SCORE = {
   CRITICAL: 95,
   HIGH: 75,
@@ -63,7 +63,7 @@ function owaspCodeOf(category) {
   return match ? match[1] : category;
 }
 
-// Le "pire" finding d'une route, pour la carte/le tri par risque.
+// The worst finding for a route, used for the card and risk sorting.
 function worstAuditOf(endpoint) {
   const results = endpoint.auditResults || [];
   if (results.length === 0) return null;
@@ -137,7 +137,7 @@ function generateAuditPdf(project) {
   const marginX = 40;
   const contentWidth = pageWidth - marginX * 2;
 
-  const generatedOn = new Date().toLocaleString("fr-FR", { dateStyle: "long", timeStyle: "short" });
+  const generatedOn = new Date().toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });
 
   const drawHeaderBand = () => {
     doc.setFillColor(...hexToRgb("#1d4ed8"));
@@ -152,7 +152,7 @@ function generateAuditPdf(project) {
     doc.setFontSize(9);
     doc.text(project.projectName || "Untitled project", marginX, 74);
     doc.setFontSize(8);
-    doc.text(`Généré le ${generatedOn}`, pageWidth - marginX, 74, { align: "right" });
+    doc.text(`Generated on ${generatedOn}`, pageWidth - marginX, 74, { align: "right" });
   };
 
   drawHeaderBand();
@@ -202,7 +202,7 @@ function generateAuditPdf(project) {
   doc.setTextColor(30, 41, 59);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text("Répartition par sévérité", marginX, y);
+  doc.text("Severity breakdown", marginX, y);
   y += 16;
 
   const barX = marginX + 75;
@@ -234,12 +234,12 @@ function generateAuditPdf(project) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.setTextColor(30, 41, 59);
-    doc.text("Couverture OWASP API Top 10", marginX, y);
+    doc.text("OWASP API Top 10 coverage", marginX, y);
     y += 8;
     autoTable(doc, {
       startY: y,
       margin: { left: marginX, right: marginX },
-      head: [["Code", "Catégorie"]],
+      head: [["Code", "Category"]],
       body: presentOwaspCoverage.map((c) => [c.code, c.label]),
       theme: "plain",
       styles: { fontSize: 8, cellPadding: 5, textColor: [51, 65, 85], lineColor: [226, 232, 240], lineWidth: 0.5 },
@@ -254,14 +254,14 @@ function generateAuditPdf(project) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.setTextColor(30, 41, 59);
-  doc.text(`Findings détaillés (${totalFindings})`, marginX, y);
+  doc.text(`Detailed findings (${totalFindings})`, marginX, y);
   y += 8;
 
   if (totalFindings === 0) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(100, 116, 139);
-    doc.text("Aucune vulnérabilité détectée sur ce projet.", marginX, y + 16);
+    doc.text("No vulnerabilities detected for this project.", marginX, y + 16);
   } else {
     const rows = [...allAudits]
       .sort((a, b) => (RISK_LEVEL_SCORE[b.riskLevel] || 0) - (RISK_LEVEL_SCORE[a.riskLevel] || 0))
@@ -277,7 +277,7 @@ function generateAuditPdf(project) {
     autoTable(doc, {
       startY: y,
       margin: { left: marginX, right: marginX, bottom: 40 },
-      head: [["Méthode", "Route", "Sévérité", "OWASP", "Vulnérabilité", "Remédiation"]],
+      head: [["Method", "Route", "Severity", "OWASP", "Vulnerability", "Remediation"]],
       body: rows,
       theme: "striped",
       styles: { fontSize: 7.5, cellPadding: 5, overflow: "linebreak", valign: "top", lineColor: [226, 232, 240] },
@@ -397,7 +397,7 @@ function EndpointCard({ endpoint, onClick }) {
           {endpoint.path}
         </h4>
         <p className="text-[11px] text-slate-500 font-mono line-clamp-2">
-          {audit ? audit.vulnerability : endpoint.summary || "Aucune vulnérabilité directe détectée."}
+          {audit ? audit.vulnerability : endpoint.summary || "No direct vulnerability detected."}
         </p>
       </div>
 
@@ -420,8 +420,8 @@ function EndpointCard({ endpoint, onClick }) {
         <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
           <span>
             {findingsCount > 0
-              ? `${findingsCount} finding${findingsCount > 1 ? "s" : ""} · risque ${riskScore}/100`
-              : "0 finding · sécurisé"}
+              ? `${findingsCount} finding${findingsCount > 1 ? "s" : ""} · risk ${riskScore}/100`
+              : "0 findings · secure"}
           </span>
           {audit && <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 transition-colors" />}
         </div>
@@ -432,9 +432,9 @@ function EndpointCard({ endpoint, onClick }) {
 
 /* ---------------- Audit In-Progress Screen ---------------- */
 const AUDIT_STEPS = [
-  "Analyse du contrat par l'IA (Gemini)…",
-  "Détection des vulnérabilités OWASP…",
-  "Calcul du score de sécurité…",
+  "AI contract analysis (Gemini)…",
+  "OWASP vulnerability detection…",
+  "Security score calculation…",
 ];
 const AUDIT_STEP_INTERVAL_MS = 15_000;
 
@@ -497,14 +497,14 @@ function AuditProgressScreen({ projectName, endpointCount, error, onRetry }) {
           <div className="relative z-10">
             <div className="flex items-center gap-2.5 mb-2">
               <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
-              <p className="text-sm font-medium text-red-800">Échec de l'analyse IA</p>
+              <p className="text-sm font-medium text-red-800">AI analysis failed</p>
             </div>
             <p className="text-xs text-red-700/90 mb-6 ml-6.5 leading-relaxed">{error}</p>
             <button
               onClick={onRetry}
               className="w-full px-3 py-2 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-1.5 text-xs"
             >
-              <RotateCw className="w-3.5 h-3.5" /> Relancer l'analyse
+              <RotateCw className="w-3.5 h-3.5" /> Retry analysis
             </button>
           </div>
         ) : (
@@ -553,7 +553,7 @@ function AuditProgressScreen({ projectName, endpointCount, error, onRetry }) {
               />
             </div>
 
-            <p className="text-[10px] text-blue-400 mt-4 text-center">L'analyse IA peut prendre jusqu'à une minute.</p>
+            <p className="text-[10px] text-blue-400 mt-4 text-center">AI analysis may take up to one minute.</p>
           </div>
         )}
       </div>
@@ -563,26 +563,26 @@ function AuditProgressScreen({ projectName, endpointCount, error, onRetry }) {
 
 /* ---------------- Format Relative Time ---------------- */
 function formatRelativeTime(timestamp) {
-  if (!timestamp) return "À l'instant";
+  if (!timestamp) return "Just now";
   const isoString = typeof timestamp === "string" ? timestamp.replace(" ", "T") : timestamp;
   const date = new Date(isoString);
-  if (isNaN(date.getTime())) return "À l'instant";
+  if (isNaN(date.getTime())) return "Just now";
 
   const now = new Date();
   const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-  if (diffInSeconds < 5) return "À l'instant";
-  if (diffInSeconds < 60) return `il y a ${diffInSeconds} sec`;
+  if (diffInSeconds < 5) return "Just now";
+  if (diffInSeconds < 60) return `${diffInSeconds} sec ago`;
   const diffInMinutes = Math.floor(diffInSeconds / 60);
-  if (diffInMinutes < 60) return `il y a ${diffInMinutes} min`;
+  if (diffInMinutes < 60) return `${diffInMinutes} min ago`;
   const diffInHours = Math.floor(diffInMinutes / 60);
-  if (diffInHours < 24) return `il y a ${diffInHours} h`;
+  if (diffInHours < 24) return `${diffInHours} hr ago`;
   const diffInDays = Math.floor(diffInHours / 24);
-  if (diffInDays < 30) return `il y a ${diffInDays} j`;
+  if (diffInDays < 30) return `${diffInDays} days ago`;
   const diffInMonths = Math.floor(diffInDays / 30);
-  if (diffInMonths < 12) return `il y a ${diffInMonths} mois`;
+  if (diffInMonths < 12) return `${diffInMonths} months ago`;
   const diffInYears = Math.floor(diffInDays / 365);
-  return `il y a ${diffInYears} an${diffInYears > 1 ? "s" : ""}`;
+  return `${diffInYears} year${diffInYears > 1 ? "s" : ""} ago`;
 }
 
 /* ---------------- Header (inline, no AppHeader needed) ---------------- */
@@ -613,20 +613,20 @@ function DashboardHeader({ project, scanComplete, onExport, onNewAnalysis }) {
         {scanComplete && (
           <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-700 font-bold text-[10px] border border-emerald-500/20 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            SCAN TERMINÉ
+            SCAN COMPLETE
           </span>
         )}
         <button
           onClick={onExport}
           className="px-3 py-1.5 rounded-lg bg-white/90 border border-blue-200 text-slate-700 hover:bg-blue-50 transition-colors flex items-center gap-1.5 shadow-sm text-xs"
         >
-          <Download className="w-3.5 h-3.5" /> Exporter
+          <Download className="w-3.5 h-3.5" /> Export
         </button>
         <button
           onClick={onNewAnalysis}
           className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-sm text-xs"
         >
-          <RotateCw className="w-3.5 h-3.5" /> Nouvelle analyse
+          <RotateCw className="w-3.5 h-3.5" /> New analysis
         </button>
       </div>
     </header>
@@ -673,7 +673,7 @@ function DashboardPage() {
       .post(`/api/projects/${projectId}/audit`)
       .then(() => loadProject()) // refetch so endpoints[].auditResults are hydrated
       .catch((err) => {
-        setAuditError(err.response?.data?.message || "L'analyse IA a échoué. Réessayez dans un instant.");
+        setAuditError(err.response?.data?.message || "AI analysis failed. Please try again shortly.");
       })
       .finally(() => setAuditLoading(false));
   };
@@ -691,7 +691,7 @@ function DashboardPage() {
     return (
       <div className="min-h-screen bg-[#eef2f8] flex flex-col items-center justify-center font-mono text-slate-500 gap-3">
         <Activity className="w-6 h-6 animate-spin text-blue-600" />
-        <span className="text-xs tracking-wider uppercase">Chargement du Threat Dashboard…</span>
+        <span className="text-xs tracking-wider uppercase">Loading the Threat Dashboard…</span>
       </div>
     );
   }
@@ -771,7 +771,7 @@ function DashboardPage() {
               <ScoreGauge score={project.globalSecurityScore ?? 0} size={130} />
               <div className="space-y-2">
                 <p className="flex items-center gap-1.5 font-mono text-[11px] font-bold tracking-wider text-blue-600 uppercase">
-                  <Radar className="size-3.5 text-blue-600" /> CIBLES ANALYSÉES
+                  <Radar className="size-3.5 text-blue-600" /> TARGETS ANALYZED
                 </p>
                 <h1 className="font-mono text-xl font-bold tracking-tight text-slate-900">
                   {project.projectName} <span className="text-slate-400 font-normal">· openapi.json</span>
@@ -784,7 +784,7 @@ function DashboardPage() {
                     <Lock className="size-3 text-blue-600" /> OWASP API Top 10 · 2023
                   </span>
                   <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-blue-500/10 px-2.5 py-1 font-bold text-blue-700 shadow-sm">
-                    <AlertTriangle className="size-3 text-blue-600" /> Action requise
+                    <AlertTriangle className="size-3 text-blue-600" /> Action required
                   </span>
                 </div>
               </div>
@@ -794,22 +794,22 @@ function DashboardPage() {
               <div className="p-4">
                 <Network className="size-4 text-blue-600" />
                 <p className="mt-3 font-mono text-2xl font-bold tabular-nums text-slate-900">{totalEndpointsCount}</p>
-                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-slate-500 uppercase">ROUTES SCANNÉES</p>
+                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-slate-500 uppercase">ROUTES SCANNED</p>
               </div>
               <div className="p-4">
                 <Bug className="size-4 text-blue-600" />
                 <p className="mt-3 font-mono text-2xl font-bold tabular-nums text-slate-900">{totalFindings}</p>
-                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-slate-500 uppercase">VULNÉRABILITÉS</p>
+                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-slate-500 uppercase">VULNERABILITIES</p>
               </div>
               <div className="p-4 bg-red-50/20">
                 <AlertTriangle className="size-4 text-red-600" />
                 <p className="mt-3 font-mono text-2xl font-bold tabular-nums text-red-600">{criticalCount}</p>
-                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-red-600 uppercase">CRITIQUES</p>
+                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-red-600 uppercase">CRITICAL</p>
               </div>
               <div className="p-4 bg-amber-50/20">
                 <Activity className="size-4 text-amber-600" />
                 <p className="mt-3 font-mono text-2xl font-bold tabular-nums text-amber-600">{maxRiskScore}</p>
-                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-amber-600 uppercase">RISQUE MAX</p>
+                <p className="mt-0.5 font-mono text-[10px] font-bold tracking-wider text-amber-600 uppercase">MAX RISK</p>
               </div>
             </div>
           </div>
@@ -819,7 +819,7 @@ function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           <div className="bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md border border-blue-200/80 rounded-2xl p-5 shadow-[0_4px_20px_-4px_rgba(59,130,246,0.08),inset_0_1px_1px_rgba(255,255,255,0.9)] flex flex-col justify-between">
             <div>
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">RÉPARTITION PAR SÉVÉRITÉ</div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">SEVERITY BREAKDOWN</div>
               <div className="space-y-2 mb-6">
                 {["CRITICAL", "HIGH", "MEDIUM", "LOW"].map((level) => {
                   const count = severityCounts[level] || 0;
@@ -840,16 +840,16 @@ function DashboardPage() {
             </div>
             <div className="pt-4 border-t border-blue-100/80 space-y-1.5 text-xs">
               <div className="flex justify-between text-slate-500"><span>Findings totaux</span><span className="font-bold text-slate-800">{totalFindings}</span></div>
-              <div className="flex justify-between text-slate-500"><span>Routes affectées</span><span className="font-bold text-slate-800">{affectedRoutesCount}/{totalEndpointsCount}</span></div>
-              <div className="flex justify-between text-slate-500"><span>Densité</span><span className="font-bold text-slate-800">{findingsDensity} / route</span></div>
-              <div className="flex justify-between text-slate-500"><span>Correctifs proposés</span><span className="font-bold text-slate-800">{remediationCount}</span></div>
+              <div className="flex justify-between text-slate-500"><span>Affected routes</span><span className="font-bold text-slate-800">{affectedRoutesCount}/{totalEndpointsCount}</span></div>
+              <div className="flex justify-between text-slate-500"><span>Density</span><span className="font-bold text-slate-800">{findingsDensity} / route</span></div>
+              <div className="flex justify-between text-slate-500"><span>Remediation suggestions</span><span className="font-bold text-slate-800">{remediationCount}</span></div>
             </div>
           </div>
 
           <div className="bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md border border-blue-200/80 rounded-2xl p-5 shadow-[0_4px_20px_-4px_rgba(59,130,246,0.08),inset_0_1px_1px_rgba(255,255,255,0.9)] flex flex-col justify-between">
             <div>
               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5 text-orange-500" /> ROUTES LES PLUS À RISQUE
+                <AlertTriangle className="w-3.5 h-3.5 text-orange-500" /> HIGHEST-RISK ROUTES
               </div>
               <div className="divide-y divide-blue-100/80">
                 {topRiskyEndpoints.map((ep) => {
@@ -879,7 +879,7 @@ function DashboardPage() {
                   );
                 })}
                 {topRiskyEndpoints.length === 0 && (
-                  <p className="text-xs text-slate-400 py-2">Aucune route à risque.</p>
+                  <p className="text-xs text-slate-400 py-2">No risky routes.</p>
                 )}
               </div>
             </div>
@@ -904,7 +904,7 @@ function DashboardPage() {
                   );
                 })}
                 {presentOwaspCoverage.length === 0 && (
-                  <p className="text-xs text-slate-400 py-2">Aucune catégorie OWASP concernée.</p>
+                  <p className="text-xs text-slate-400 py-2">No relevant OWASP categories.</p>
                 )}
               </div>
             </div>
@@ -914,35 +914,35 @@ function DashboardPage() {
         {/* Pipeline Bar
         <div className="bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md border border-blue-200/80 rounded-xl px-5 py-3 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9)]">
           <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-            <Layers className="w-3.5 h-3.5 text-blue-600" /> PIPELINE D'ANALYSE
+            <Layers className="w-3.5 h-3.5 text-blue-600" /> ANALYSIS PIPELINE
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
               <div>
-                <div className="font-bold text-slate-800 text-[11px]">Parsing du contrat OpenAPI</div>
-                <div className="text-[10px] text-slate-400">{totalEndpointsCount} routes détectées</div>
+                <div className="font-bold text-slate-800 text-[11px]">Parsing the OpenAPI contract</div>
+                <div className="text-[10px] text-slate-400">{totalEndpointsCount} routes detected</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <span className={cn("w-2 h-2 rounded-full", auditError ? "bg-red-500" : auditLoading ? "bg-amber-500 animate-pulse" : "bg-emerald-500")} />
               <div>
-                <div className="font-bold text-slate-800 text-[11px]">Analyse IA (Gemini)</div>
-                <div className="text-[10px] text-slate-400">{auditError ? "Échec de l'analyse" : auditLoading ? "En cours…" : "Terminée"}</div>
+                <div className="font-bold text-slate-800 text-[11px]">AI analysis (Gemini)</div>
+                <div className="text-[10px] text-slate-400">{auditError ? "Analysis failed" : auditLoading ? "In progress…" : "Complete"}</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <span className={cn("w-2 h-2 rounded-full", auditError ? "bg-red-500" : auditLoading ? "bg-slate-300" : "bg-emerald-500")} />
               <div>
-                <div className="font-bold text-slate-800 text-[11px]">Corrélations OWASP Top 10</div>
-                <div className="text-[10px] text-slate-400">{auditLoading ? "En attente…" : `${totalFindings} finding${totalFindings > 1 ? "s" : ""} retenu${totalFindings > 1 ? "s" : ""}`}</div>
+                <div className="font-bold text-slate-800 text-[11px]">OWASP Top 10 correlations</div>
+                <div className="text-[10px] text-slate-400">{auditLoading ? "Pending…" : `${totalFindings} finding${totalFindings > 1 ? "s" : ""} identified`}</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <span className={cn("w-2 h-2 rounded-full", auditError ? "bg-red-500" : auditLoading ? "bg-slate-300" : "bg-emerald-500")} />
               <div>
-                <div className="font-bold text-slate-800 text-[11px]">Scoring & priorisation</div>
-                <div className="text-[10px] text-slate-400">{auditLoading ? "En attente…" : `Score global ${project.globalSecurityScore}/100`}</div>
+                <div className="font-bold text-slate-800 text-[11px]">Scoring & prioritization</div>
+                <div className="text-[10px] text-slate-400">{auditLoading ? "Pending…" : `Overall score ${project.globalSecurityScore}/100`}</div>
               </div>
             </div>
           </div>
@@ -950,7 +950,7 @@ function DashboardPage() {
             <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
               <span>{auditError}</span>
               <button onClick={runAudit} className="shrink-0 px-2.5 py-1 rounded-md bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors text-[11px]">
-                Relancer
+                Retry
               </button>
             </div>
           )}
@@ -962,7 +962,7 @@ function DashboardPage() {
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Rechercher un endpoint..."
+              placeholder="Search for an endpoint..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full bg-white/90 border border-blue-200 rounded-lg pl-9 pr-4 py-1.5 text-xs text-slate-800 placeholder-slate-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all"
@@ -970,7 +970,7 @@ function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap w-full md:w-auto justify-end">
-            <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Filtres:</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Filters:</span>
             {Object.keys(SEVERITY_COLORS).map((level) => {
               const isActive = severityFilter === level;
               return (
@@ -1032,7 +1032,7 @@ function DashboardPage() {
         {filteredEndpoints.length === 0 && (
           <div className="text-center py-12 border border-dashed border-blue-200 rounded-xl bg-white/40">
             <FileCode2 className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-slate-600">Aucun endpoint ne correspond aux critères</p>
+            <p className="text-sm font-semibold text-slate-600">No endpoint matches the criteria</p>
           </div>
         )}
       </div>

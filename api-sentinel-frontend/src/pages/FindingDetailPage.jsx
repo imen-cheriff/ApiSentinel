@@ -117,17 +117,6 @@ function FindingDetailPage() {
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setFalsePositive((v) => !v)}
-              className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-sm ${
-                falsePositive
-                  ? "bg-slate-800 text-white border-slate-800"
-                  : "bg-white/90 border-blue-200 text-slate-700 hover:bg-blue-50"
-              }`}
-            >
-              <EyeOff className="w-3.5 h-3.5" />
-              {falsePositive ? "Marked as false positive" : "Mark false positive"}
-            </button>
-            <button
               onClick={() => goToFinding(currentIndex + 1)}
               className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-sm text-xs"
             >

@@ -67,10 +67,6 @@ function OpenApiUploader({ onUploadSuccess }) {
     return () => clearInterval(clock);
   }, [isUploading]);
 
-  // Drive the checklist from real elapsed time, following the requested
-  // pacing (0-5s / 5-15s / 15-25s), but never further than what the real
-  // phase has actually reached. The last step is the exception: as soon as
-  // the audit genuinely resolves (phase 2), jump straight to it.
   useEffect(() => {
     if (!isUploading) return;
     if (phase >= 2) {
@@ -149,11 +145,17 @@ function OpenApiUploader({ onUploadSuccess }) {
 
       onUploadSuccess({ project, auditResult: auditRes.data });
     } catch (err) {
-      setError(
-        phaseRef.current === 0
-          ? "Import failed. Please check your file and try again."
-          : "AI audit failed. Please try again."
-      );
+      const code = err.response?.data?.code;
+      if (code === "QUOTA_EXCEEDED") {
+        setError("Quota Gemini quotidien épuisé, réessayez plus tard.");
+      } else {
+        setError(
+          err.response?.data?.message ||
+          (phaseRef.current === 0
+            ? "Import failed. Please check your file and try again."
+            : "AI audit failed. Please try again.")
+        );
+      }
       setIsUploading(false);
     }
   };

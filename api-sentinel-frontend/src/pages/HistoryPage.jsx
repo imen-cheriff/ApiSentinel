@@ -52,8 +52,9 @@ function findingsCountOf(scan) {
 /* ---------------- Score evolution sparkline ---------------- */
 function ScoreEvolutionChart({ points }) {
     const width = 1100;
-    const height = 120;
-    const padding = 10;
+    const height = 160;
+    const padding = 16;
+    const [hovered, setHovered] = useState(null);
 
     if (points.length === 0) return null;
 
@@ -65,18 +66,115 @@ function ScoreEvolutionChart({ points }) {
     const coords = points.map((p, i) => {
         const x = points.length === 1 ? width / 2 : (i / (points.length - 1)) * (width - padding * 2) + padding;
         const y = height - padding - ((p.score - min) / range) * (height - padding * 2);
-        return { x, y };
+        return { x, y, score: p.score, scanDate: p.scanDate };
     });
 
-    const path = coords.map((c, i) => `${i === 0 ? "M" : "L"} ${c.x} ${c.y}`).join(" ");
+    // Smooth the line with a simple cubic bezier between points instead of
+    // sharp straight segments — gives the sparkline a softer, more polished feel.
+    const linePath = coords.reduce((acc, c, i) => {
+        if (i === 0) return `M ${c.x} ${c.y}`;
+        const prev = coords[i - 1];
+        const midX = (prev.x + c.x) / 2;
+        return `${acc} C ${midX} ${prev.y}, ${midX} ${c.y}, ${c.x} ${c.y}`;
+    }, "");
+
+    const areaPath = `${linePath} L ${coords[coords.length - 1].x} ${height - padding} L ${coords[0].x} ${height - padding} Z`;
+
+    // Horizontal gridlines at nice fractions of the chart height.
+    const gridLines = [0, 0.25, 0.5, 0.75, 1];
 
     return (
         <div>
-            <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-28" preserveAspectRatio="none">
-                <path d={path} fill="none" stroke="#2563eb" strokeWidth="2" />
+            <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-36" preserveAspectRatio="none">
+                <defs>
+                    <linearGradient id="scoreAreaFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.28" />
+                        <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                    </linearGradient>
+                    <linearGradient id="scoreLineStroke" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="#60a5fa" />
+                        <stop offset="100%" stopColor="#2563eb" />
+                    </linearGradient>
+                </defs>
+
+                {/* Light blue grid */}
+                {gridLines.map((f, i) => {
+                    const y = padding + f * (height - padding * 2);
+                    return (
+                        <line
+                            key={i}
+                            x1={padding}
+                            y1={y}
+                            x2={width - padding}
+                            y2={y}
+                            stroke="#bfdbfe"
+                            strokeOpacity="0.6"
+                            strokeWidth="1"
+                            strokeDasharray={i === gridLines.length - 1 ? "0" : "4 5"}
+                        />
+                    );
+                })}
                 {coords.map((c, i) => (
-                    <circle key={i} cx={c.x} cy={c.y} r={i === coords.length - 1 ? 4 : 3} fill="#2563eb" />
+                    <line
+                        key={`v-${i}`}
+                        x1={c.x}
+                        y1={padding}
+                        x2={c.x}
+                        y2={height - padding}
+                        stroke="#dbeafe"
+                        strokeOpacity="0.7"
+                        strokeWidth="1"
+                    />
                 ))}
+
+                {/* Area + line */}
+                <path d={areaPath} fill="url(#scoreAreaFill)" stroke="none" />
+                <path d={linePath} fill="none" stroke="url(#scoreLineStroke)" strokeWidth="2.5" strokeLinecap="round" />
+
+                {/* Points */}
+                {coords.map((c, i) => {
+                    const isLast = i === coords.length - 1;
+                    const isHovered = hovered === i;
+                    return (
+                        <g key={i} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)}>
+                            <circle cx={c.x} cy={c.y} r={10} fill="transparent" />
+                            {(isLast || isHovered) && (
+                                <circle cx={c.x} cy={c.y} r={7} fill="#2563eb" fillOpacity="0.15" />
+                            )}
+                            <circle
+                                cx={c.x}
+                                cy={c.y}
+                                r={isHovered ? 5 : isLast ? 4.5 : 3.5}
+                                fill="#2563eb"
+                                stroke="white"
+                                strokeWidth="1.5"
+                                className="transition-all duration-150"
+                            />
+                            {isHovered && (
+                                <g>
+                                    <rect
+                                        x={Math.min(Math.max(c.x - 26, padding), width - padding - 52)}
+                                        y={Math.max(c.y - 34, 0)}
+                                        width="52"
+                                        height="22"
+                                        rx="5"
+                                        fill="#1e3a8a"
+                                    />
+                                    <text
+                                        x={Math.min(Math.max(c.x, padding + 26), width - padding - 26)}
+                                        y={Math.max(c.y - 19, 15)}
+                                        textAnchor="middle"
+                                        fontSize="11"
+                                        fontWeight="700"
+                                        fill="white"
+                                    >
+                                        {c.score != null ? `${c.score}/100` : "—"}
+                                    </text>
+                                </g>
+                            )}
+                        </g>
+                    );
+                })}
             </svg>
             <div className="flex justify-between mt-2 font-mono text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                 {points.map((p, i) => (
