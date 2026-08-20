@@ -1,5 +1,7 @@
 package com.apisentinel.backend.ai;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -19,8 +21,13 @@ import java.util.Map;
 @Service
 public class GeminiClient {
 
+    private static final Logger log = LoggerFactory.getLogger(GeminiClient.class);
+
     private static final int MAX_ATTEMPTS = 3;
+    private static final int MAX_ATTEMPTS_OVERLOADED = 5;
+    private static final int MAX_ATTEMPTS_FALLBACK = 2;
     private static final long INITIAL_BACKOFF_MS = 2_000;
+    private static final long MAX_BACKOFF_MS = 20_000;
 
     private static final String DAILY_QUOTA_MARKER = "PerDay";
 
@@ -33,6 +40,9 @@ public class GeminiClient {
     @Value("${gemini.api.url}")
     private String apiUrl;
 
+    @Value("${gemini.api.url.fallback}")
+    private String fallbackApiUrl;
+
     public GeminiClient(RestTemplate restTemplate, JsonMapper jsonMapper) {
         this.restTemplate = restTemplate;
         this.jsonMapper = jsonMapper;
@@ -44,7 +54,7 @@ public class GeminiClient {
                         Map.of("parts", List.of(Map.of("text", prompt)))
                 )
         );
-        return callGeminiWithRetry(body);
+        return generateWithFallback(body);
     }
 
     public String generateStructuredJson(String prompt, Map<String, Object> jsonSchema) {
@@ -57,43 +67,83 @@ public class GeminiClient {
                         "responseSchema", jsonSchema
                 )
         );
-        return callGeminiWithRetry(body);
+        return generateWithFallback(body);
     }
 
-    private String callGeminiWithRetry(Map<String, Object> body) {
-        RuntimeException lastError = null;
-
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    private String generateWithFallback(Map<String, Object> body) {
+        try {
+            return callGeminiWithRetry(body, apiUrl, MAX_ATTEMPTS_OVERLOADED, "primary");
+        } catch (GeminiOverloadedException primaryFailure) {
+            log.warn("Primary model overloaded after exhausting retries, switching to fallback model");
             try {
-                return callGemini(body);
-            } catch (HttpStatusCodeException e) {
-                if (isDailyQuotaExhausted(e)) {
-                    throw new QuotaExceededException(
-                            "Quota gratuit Gemini quotidien épuisé pour ce modèle. "
-                                    + "Le quota se réinitialise le lendemain (minuit, heure du Pacifique) — "
-                                    + "réessayez plus tard, ou activez la facturation sur le projet Google AI Studio "
-                                    + "pour lever la limite du free tier.", e);
-                }
-                if (!isRetryable(e) || attempt == MAX_ATTEMPTS) {
-                    throw new GeminiCallException("Échec de l'appel à Gemini : " + e.getMessage(), e);
-                }
-                lastError = new GeminiCallException("Échec de l'appel à Gemini : " + e.getMessage(), e);
-                long backoffMs = INITIAL_BACKOFF_MS * (1L << (attempt - 1)); // 2s, 4s
-                sleep(backoffMs);
-            } catch (RestClientException e) {
-                if (attempt == MAX_ATTEMPTS) {
-                    throw new GeminiCallException("Échec de l'appel à Gemini : " + e.getMessage(), e);
-                }
-                lastError = new GeminiCallException("Échec de l'appel à Gemini : " + e.getMessage(), e);
-                sleep(INITIAL_BACKOFF_MS * (1L << (attempt - 1)));
+                return callGeminiWithRetry(body, fallbackApiUrl, MAX_ATTEMPTS_FALLBACK, "fallback");
+            } catch (GeminiCallException fallbackFailure) {
+                log.error("Fallback model also failed, giving up definitively");
+                GeminiOverloadedException finalError = new GeminiOverloadedException(
+                        "Both the primary and fallback Gemini models are temporarily unavailable. "
+                                + "Please try again in a few minutes.", fallbackFailure);
+                finalError.addSuppressed(primaryFailure);
+                throw finalError;
             }
         }
-        throw lastError; // inatteignable en pratique, mais requis par le compilateur
+    }
+
+    private String callGeminiWithRetry(Map<String, Object> body, String targetUrl, int maxAttempts, String label) {
+        RuntimeException lastError = null;
+        int attempt = 1;
+
+        while (true) {
+            try {
+                return callGemini(body, targetUrl);
+            } catch (HttpStatusCodeException e) {
+                if (isDailyQuotaExhausted(e)) {
+                    log.warn("Daily Gemini quota exhausted (model {}), stopping retries", label);
+                    throw new QuotaExceededException(
+                            "Free daily Gemini quota exhausted for this model. "
+                                    + "The quota resets the next day (midnight Pacific time) — "
+                                    + "try again later, or enable billing on the Google AI Studio project "
+                                    + "to lift the free tier limit.", e);
+                }
+
+                boolean overloaded = isOverloaded(e);
+
+                if (!isRetryable(e) || attempt >= maxAttempts) {
+                    log.error("Final failure calling Gemini (model {}) after {} attempt(s): {}",
+                            label, attempt, e.getMessage());
+                    if (overloaded) {
+                        throw new GeminiOverloadedException(
+                                "The Gemini model is temporarily overloaded (high demand). "
+                                        + "Please try again in a minute.", e);
+                    }
+                    throw new GeminiCallException("Gemini call failed: " + e.getMessage(), e);
+                }
+
+                lastError = new GeminiCallException("Gemini call failed: " + e.getMessage(), e);
+                long backoffMs = computeBackoff(attempt);
+                log.warn("Gemini call failed (model {}, attempt {}/{}, status {}), retrying in {} ms",
+                        label, attempt, maxAttempts, e.getStatusCode().value(), backoffMs);
+                sleep(backoffMs);
+                attempt++;
+            } catch (RestClientException e) {
+                if (attempt >= maxAttempts) {
+                    log.error("Final failure calling Gemini (model {}, network) after {} attempt(s)",
+                            label, attempt);
+                    throw new GeminiCallException("Gemini call failed: " + e.getMessage(), e);
+                }
+                lastError = new GeminiCallException("Gemini call failed: " + e.getMessage(), e);
+                sleep(computeBackoff(attempt));
+                attempt++;
+            }
+        }
     }
 
     private boolean isRetryable(HttpStatusCodeException httpEx) {
         HttpStatusCode status = httpEx.getStatusCode();
         return status.is5xxServerError() || status.value() == 429;
+    }
+
+    private boolean isOverloaded(HttpStatusCodeException httpEx) {
+        return httpEx.getStatusCode().value() == 503;
     }
 
     private boolean isDailyQuotaExhausted(HttpStatusCodeException httpEx) {
@@ -104,21 +154,28 @@ public class GeminiClient {
         return responseBody != null && responseBody.contains(DAILY_QUOTA_MARKER);
     }
 
+    private long computeBackoff(int attempt) {
+        long exp = INITIAL_BACKOFF_MS * (1L << (attempt - 1));
+        long capped = Math.min(exp, MAX_BACKOFF_MS);
+        long jitter = (long) (Math.random() * capped * 0.3);
+        return capped + jitter;
+    }
+
     private void sleep(long millis) {
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new GeminiCallException("Interrompu pendant l'attente avant retry", e);
+            throw new GeminiCallException("Interrupted while waiting before retry", e);
         }
     }
 
-    private String callGemini(Map<String, Object> body) {
+    private String callGemini(Map<String, Object> body, String targetUrl) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-        String url = apiUrl + "?key=" + apiKey;
+        String url = targetUrl + "?key=" + apiKey;
 
         ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
         return extractText(response.getBody());
@@ -132,9 +189,9 @@ public class GeminiClient {
                     .path("content")
                     .path("parts").get(0)
                     .path("text")
-                    .asString(); // asText() a été renommé asString() en Jackson 3
+                    .asString();
         } catch (Exception e) {
-            throw new GeminiCallException("Réponse Gemini illisible : " + rawResponse, e);
+            throw new GeminiCallException("Unreadable Gemini response: " + rawResponse, e);
         }
     }
 
@@ -146,6 +203,12 @@ public class GeminiClient {
 
     public static class QuotaExceededException extends GeminiCallException {
         public QuotaExceededException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    public static class GeminiOverloadedException extends GeminiCallException {
+        public GeminiOverloadedException(String message, Throwable cause) {
             super(message, cause);
         }
     }

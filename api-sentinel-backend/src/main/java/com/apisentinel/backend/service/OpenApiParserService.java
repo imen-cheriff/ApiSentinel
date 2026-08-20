@@ -9,6 +9,7 @@ import io.swagger.v3.parser.OpenAPIV3Parser;
 import io.swagger.v3.parser.core.models.SwaggerParseResult;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -17,11 +18,16 @@ import java.util.Map;
 public class OpenApiParserService {
 
     public List<Endpoint> parse(byte[] fileContent) {
-        String content = new String(fileContent);
+        String content = new String(fileContent, StandardCharsets.UTF_8);
 
         OpenAPIV3Parser parser = new OpenAPIV3Parser();
         SwaggerParseResult result = parser.readContents(content, null, null);
         OpenAPI openAPI = result.getOpenAPI();
+
+        if (openAPI == null) {
+            throw new IllegalArgumentException(
+                    "Fichier OpenAPI invalide : " + result.getMessages());
+        }
 
         List<Endpoint> endpoints = new ArrayList<>();
 
@@ -33,6 +39,7 @@ public class OpenApiParserService {
             addEndpointIfPresent(endpoints, path, "POST", pathItem.getPost());
             addEndpointIfPresent(endpoints, path, "PUT", pathItem.getPut());
             addEndpointIfPresent(endpoints, path, "DELETE", pathItem.getDelete());
+            addEndpointIfPresent(endpoints, path, "PATCH", pathItem.getPatch());
         }
 
         return endpoints;

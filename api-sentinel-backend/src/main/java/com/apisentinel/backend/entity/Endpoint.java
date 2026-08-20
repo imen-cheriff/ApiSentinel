@@ -17,6 +17,8 @@ public class Endpoint {
     private String path;
     private String method;
     private String summary;
+
+    @Column(length = 2000)
     private String description;
 
     @ManyToOne

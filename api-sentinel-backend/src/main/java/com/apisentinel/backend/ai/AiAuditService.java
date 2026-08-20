@@ -1,6 +1,5 @@
 package com.apisentinel.backend.ai;
 
-import com.apisentinel.backend.ai.dto.AuditBatchResponse;
 import com.apisentinel.backend.ai.dto.AuditResultAiResponse;
 import com.apisentinel.backend.ai.dto.AuditResultResponse;
 import com.apisentinel.backend.ai.dto.AuditSummaryResponse;
@@ -16,7 +15,10 @@ import com.apisentinel.backend.entity.RiskLevel;
 import com.apisentinel.backend.entity.TestScenario;
 import com.apisentinel.backend.repository.AuditResultRepository;
 import com.apisentinel.backend.repository.ProjectRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.ArrayList;
@@ -26,6 +28,8 @@ import java.util.Map;
 
 @Service
 public class AiAuditService {
+
+    private static final Logger log = LoggerFactory.getLogger(AiAuditService.class);
 
     private static final String OWASP_CATEGORIES = """
             API1:2023 Broken Object Level Authorization
@@ -41,27 +45,27 @@ public class AiAuditService {
             """;
 
     private static final String RISK_METHODOLOGY = """
-            MÉTHODE DE CLASSIFICATION DU RISQUE (obligatoire, ne saute pas cette étape, pour CHAQUE finding) :
-            Pour CHAQUE vulnérabilité, détermine le riskLevel en raisonnant explicitement sur deux axes,
-            puis combine-les :
+            RISK CLASSIFICATION METHOD (mandatory, do not skip this step, for EACH finding):
+            For EACH vulnerability, determine the riskLevel by explicitly reasoning along two axes,
+            then combine them:
 
-            1. Probabilité d'exploitation — facilement exploitable si : pas d'authentification visible,
-               identifiant/ID directement dans le chemin ou les paramètres (ex. {userId}, {orderId}),
-               pas de contrôle d'autorisation mentionné, entrée utilisateur non validée.
-               Difficilement exploitable si : authentification explicite, portée limitée à l'utilisateur
-               courant (ex. /users/me/...), validation ou contrôle métier mentionné dans la description.
+            1. Likelihood of exploitation — easily exploitable if: no visible authentication,
+               identifier/ID directly in the path or parameters (e.g. {userId}, {orderId}),
+               no authorization control mentioned, unvalidated user input.
+               Hard to exploit if: explicit authentication, scope limited to the current
+               user (e.g. /users/me/...), validation or business control mentioned in the description.
 
-            2. Impact métier — élevé si : données sensibles (financières, personnelles, santé, identifiants),
-               action destructive ou irréversible (DELETE, suppression, modification de droits admin).
-               Faible si : donnée publique ou non sensible, action en lecture seule sans effet de bord.
+            2. Business impact — high if: sensitive data (financial, personal, health, credentials),
+               destructive or irreversible action (DELETE, deletion, admin rights modification).
+               Low if: public or non-sensitive data, read-only action with no side effects.
 
-            Combine les deux axes (probabilité × impact) pour choisir CRITICAL, HIGH, MEDIUM ou LOW —
-            n'utilise jamais un niveau par défaut ou par habitude. La justification de ce raisonnement
-            (pourquoi cette probabilité, pourquoi cet impact) doit apparaître explicitement dans le champ
-            "description", pas seulement la conclusion.
+            Combine both axes (likelihood × impact) to choose CRITICAL, HIGH, MEDIUM, or LOW —
+            never use a default or habitual level. The justification for this reasoning
+            (why this likelihood, why this impact) must appear explicitly in the
+            "description" field, not just the conclusion.
 
-            Pour chaque vulnérabilité identifiée, fournis aussi 1 à 2 scénarios de test concrets
-            qu'un pentester pourrait exécuter pour la vérifier, avec des étapes précises et actionnables.
+            For each vulnerability identified, also provide 1 to 2 concrete test scenarios
+            a pentester could run to verify it, with precise, actionable steps.
             """;
 
     private final GeminiClient geminiClient;
@@ -77,10 +81,12 @@ public class AiAuditService {
         this.projectRepository = projectRepository;
     }
 
+    @Transactional
     public Project generateAndSaveAuditForProject(Project project) {
         List<Endpoint> endpoints = project.getEndpoints();
 
         if (endpoints == null || endpoints.isEmpty()) {
+            log.info("Project {} has no endpoints, default score applied", project.getId());
             project.calculateSecurityScore(List.of());
             return projectRepository.save(project);
         }
@@ -93,6 +99,8 @@ public class AiAuditService {
         String prompt = buildProjectPrompt(endpoints);
         Map<String, Object> schema = buildProjectSchema();
 
+        log.info("Starting AI audit for project {} ({} endpoints)", project.getId(), endpoints.size());
+
         String rawJson = geminiClient.generateStructuredJson(prompt, schema);
         ProjectBatchAuditResponse parsed = jsonMapper.readValue(rawJson, ProjectBatchAuditResponse.class);
 
@@ -101,6 +109,8 @@ public class AiAuditService {
         for (ProjectBatchAuditResponse.EndpointAuditResult endpointAudit : parsed.endpointAudits()) {
             Endpoint endpoint = endpointsById.get(endpointAudit.endpointId());
             if (endpoint == null) {
+                log.warn("Gemini returned an unknown endpointId ({}) for project {} — finding ignored",
+                        endpointAudit.endpointId(), project.getId());
                 continue;
             }
 
@@ -117,7 +127,12 @@ public class AiAuditService {
         }
 
         project.calculateSecurityScore(allResults);
-        return projectRepository.save(project);
+        Project saved = projectRepository.save(project);
+
+        log.info("Audit completed for project {}: {} findings across {} endpoints",
+                project.getId(), allResults.size(), endpoints.size());
+
+        return saved;
     }
 
     public ProjectAuditResponse generateAndSaveAuditForProjectAsResponse(Project project) {
@@ -191,33 +206,11 @@ public class AiAuditService {
         );
     }
 
-    public List<AuditResult> generateAndSaveAuditForEndpoint(Endpoint endpoint) {
-        clearExistingResults(endpoint);
-
-        String prompt = buildPrompt(endpoint);
-        Map<String, Object> schema = buildSchema();
-
-        String rawJson = geminiClient.generateStructuredJson(prompt, schema);
-        AuditBatchResponse parsed = jsonMapper.readValue(rawJson, AuditBatchResponse.class);
-
-        List<AuditResult> auditResults = new ArrayList<>();
-        for (AuditResultAiResponse finding : parsed.findings()) {
-            AuditResult auditResult = toEntity(finding, endpoint);
-            AuditResult saved = auditResultRepository.save(auditResult);
-            attachToEndpoint(endpoint, saved);
-            auditResults.add(saved);
-        }
-        return auditResults;
-    }
-
     private void clearExistingResults(Endpoint endpoint) {
         if (endpoint.getAuditResults() != null && !endpoint.getAuditResults().isEmpty()) {
             auditResultRepository.deleteAll(endpoint.getAuditResults());
             endpoint.getAuditResults().clear();
         } else if (endpoint.getAuditResults() == null) {
-            // La collection JPA peut être null tant qu'aucun résultat n'a jamais été
-            // attaché (dépend du provider/lazy-loading) : on l'initialise ici pour
-            // pouvoir y ajouter les nouveaux résultats juste après sans NPE.
             endpoint.setAuditResults(new ArrayList<>());
         }
     }
@@ -246,7 +239,7 @@ public class AiAuditService {
                 scenario.setSteps(scenarioDto.steps());
                 scenario.setExpectedStatusOnSuccess(scenarioDto.expectedStatusOnSuccess());
                 scenario.setPayloadExample(scenarioDto.payloadExample());
-                scenario.setAuditResult(auditResult); // back-reference obligatoire pour le cascade
+                scenario.setAuditResult(auditResult); // back-reference required for cascade
                 scenarios.add(scenario);
             }
         }
@@ -264,76 +257,43 @@ public class AiAuditService {
         }
     }
 
-    private String buildPrompt(Endpoint endpoint) {
-        return """
-                Tu es un auditeur de sécurité API senior, spécialisé dans l'OWASP API Security Top 10 (2023).
-
-                Analyse l'endpoint suivant et identifie entre 1 et 3 vulnérabilités réalistes et distinctes,
-                classées par risque décroissant. Base-toi uniquement sur les informations fournies
-                (méthode, chemin, résumé, description, paramètres) — ne suppose rien qui ne soit pas indiqué.
-
-                Endpoint :
-                - Méthode : %s
-                - Chemin : %s
-                - Résumé : %s
-                - Description : %s
-                - Paramètres :
-                %s
-
-                Catégories OWASP API Security Top 10 disponibles (utilise EXACTEMENT le code, ex. "API1:2023") :
-                %s
-
-                %s
-
-                Réponds uniquement avec le JSON demandé, sans texte additionnel.
-                """.formatted(
-                endpoint.getMethod(),
-                endpoint.getPath(),
-                nullToEmpty(endpoint.getSummary()),
-                nullToEmpty(endpoint.getDescription()),
-                buildParamsBlock(endpoint),
-                OWASP_CATEGORIES,
-                RISK_METHODOLOGY
-        );
-    }
-
     private String buildProjectPrompt(List<Endpoint> endpoints) {
         StringBuilder endpointsBlock = new StringBuilder();
         for (Endpoint endpoint : endpoints) {
             endpointsBlock.append("### Endpoint ID: ").append(endpoint.getId()).append("\n")
-                    .append("- Méthode : ").append(endpoint.getMethod()).append("\n")
-                    .append("- Chemin : ").append(endpoint.getPath()).append("\n")
-                    .append("- Résumé : ").append(nullToEmpty(endpoint.getSummary())).append("\n")
-                    .append("- Description : ").append(nullToEmpty(endpoint.getDescription())).append("\n")
-                    .append("- Paramètres :\n").append(buildParamsBlock(endpoint)).append("\n\n");
+                    .append("- Method: ").append(endpoint.getMethod()).append("\n")
+                    .append("- Path: ").append(endpoint.getPath()).append("\n")
+                    .append("- Summary: ").append(nullToEmpty(endpoint.getSummary())).append("\n")
+                    .append("- Description: ").append(nullToEmpty(endpoint.getDescription())).append("\n")
+                    .append("- Parameters:\n").append(buildParamsBlock(endpoint)).append("\n\n");
         }
 
         return """
-                Tu es un auditeur de sécurité API senior, spécialisé dans l'OWASP API Security Top 10 (2023).
+                You are a senior API security auditor, specialized in the OWASP API Security Top 10 (2023).
 
-                Voici la liste des endpoints d'un projet. Analyse CHAQUE endpoint INDÉPENDAMMENT et identifie,
-                pour chacun, entre 1 et 3 vulnérabilités réalistes et distinctes, classées par risque décroissant.
-                Base-toi uniquement sur les informations fournies pour cet endpoint précis — ne suppose rien
-                qui ne soit pas indiqué, et ne mélange jamais les findings entre deux endpoints différents.
+                Here is the list of endpoints for a project. Analyze EACH endpoint INDEPENDENTLY and identify,
+                for each one, between 1 and 3 realistic and distinct vulnerabilities, ranked by decreasing risk.
+                Base your analysis solely on the information provided for this specific endpoint — do not assume
+                anything that isn't stated, and never mix findings between two different endpoints.
 
-                Endpoints à analyser :
+                Endpoints to analyze:
                 %s
 
-                Catégories OWASP API Security Top 10 disponibles (utilise EXACTEMENT le code, ex. "API1:2023") :
+                Available OWASP API Security Top 10 categories (use the EXACT code, e.g. "API1:2023"):
                 %s
 
                 %s
 
-                Réponds uniquement avec le JSON demandé : un objet contenant "endpointAudits", un élément par
-                endpoint analysé, chacun avec son "endpointId" EXACT tel qu'indiqué ci-dessus (ne l'invente pas
-                et ne le modifie pas). Aucun texte additionnel en dehors du JSON.
+                Respond only with the requested JSON: an object containing "endpointAudits", one element per
+                endpoint analyzed, each with its EXACT "endpointId" as indicated above (do not invent it
+                or modify it). No additional text outside the JSON.
                 """.formatted(endpointsBlock, OWASP_CATEGORIES, RISK_METHODOLOGY);
     }
 
     private String buildParamsBlock(Endpoint endpoint) {
         List<Parameter> parameters = endpoint.getParameters();
         if (parameters == null || parameters.isEmpty()) {
-            return "Aucun paramètre déclaré.";
+            return "No parameters declared.";
         }
         StringBuilder params = new StringBuilder();
         for (Parameter p : parameters) {
@@ -347,7 +307,7 @@ public class AiAuditService {
     }
 
     private String nullToEmpty(String value) {
-        return value == null ? "(non renseigné)" : value;
+        return value == null ? "(not provided)" : value;
     }
 
     private Map<String, Object> testScenarioSchema() {
@@ -359,7 +319,7 @@ public class AiAuditService {
                         "expectedStatusOnSuccess", Map.of("type", "integer"),
                         "payloadExample", Map.of("type", "string")
                 ),
-                "required", List.of("title", "steps")
+                "required", List.of("title", "steps", "payloadExample")
         );
     }
 
@@ -375,16 +335,6 @@ public class AiAuditService {
                         "testScenarios", Map.of("type", "array", "items", testScenarioSchema())
                 ),
                 "required", List.of("owaspCategory", "vulnerability", "description", "remediation", "riskLevel")
-        );
-    }
-
-    private Map<String, Object> buildSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "findings", Map.of("type", "array", "items", findingSchema())
-                ),
-                "required", List.of("findings")
         );
     }
 
