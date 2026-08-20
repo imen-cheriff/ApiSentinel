@@ -24,7 +24,6 @@ import {
 const SEVERITY_COLORS = { CRITICAL: "#dc2626", HIGH: "#ea580c", MEDIUM: "#ca8a04", LOW: "#16a34a" };
 const RISK_LEVEL_SCORE = { CRITICAL: 95, HIGH: 75, MEDIUM: 50, LOW: 20 };
 
-// Full OWASP API Security Top 10 — 2023 edition (all 10 categories).
 const OWASP_COVERAGE = [
   {
     label: "Broken Object Level Auth",
@@ -186,7 +185,6 @@ function OwaspPage() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Came with state (from Dashboard/Finding page) — no need to refetch.
     if (project && String(project.id) === String(projectId)) return;
 
     setLoading(true);
@@ -195,9 +193,8 @@ function OwaspPage() {
       .then((res) => setProject(res.data))
       .catch(() => setError("Could not load this scan."))
       .finally(() => setLoading(false));
-  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
-  // Every (endpoint, finding) pair for THIS project only, bucketed by OWASP category code.
   const findingsByCode = useMemo(() => {
     const map = {};
     OWASP_COVERAGE.forEach((c) => (map[c.code] = []));

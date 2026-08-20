@@ -8,9 +8,6 @@ function UploadPage() {
   const navigate = useNavigate();
 
   const handleUploadSuccess = ({ project, auditResult }) => {
-    // Both the import and the AI audit already finished on this page —
-    // hand the data straight to the dashboard so it doesn't need to
-    // re-fetch or re-run the audit (and show a second loading screen).
     navigate(`/dashboard/${project.id}`, { state: { project, auditResult } });
   };
 

@@ -44,8 +44,6 @@ const METHOD_COLORS = {
   DELETE: "#dc2626",
 };
 
-// No numeric score is returned by the backend for a finding
-// (only riskLevel), so one is derived for UI bars and sorting.
 const RISK_LEVEL_SCORE = {
   CRITICAL: 95,
   HIGH: 75,
@@ -63,16 +61,12 @@ function owaspCodeOf(category) {
   return match ? match[1] : category;
 }
 
-// The worst finding for a route, used for the card and risk sorting.
 function worstAuditOf(endpoint) {
   const results = endpoint.auditResults || [];
   if (results.length === 0) return null;
   return [...results].sort((a, b) => riskScoreOf(b) - riskScoreOf(a))[0];
 }
 
-// Full OWASP API Security Top 10 (2023) — used as a lookup table to resolve
-// the label/icon for whichever categories actually show up in this project's
-// findings (see `presentOwaspCoverage` below), rather than a fixed subset.
 const ALL_OWASP_CATEGORIES = [
   { label: "Broken Object Level Auth", code: "API1:2023", icon: Unlink },
   { label: "Broken Authentication", code: "API2:2023", icon: Lock },
@@ -93,7 +87,6 @@ function hexToRgb(hex) {
   return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
 }
 
-// Blend a hex color toward white — used for soft severity-tinted table cells.
 function tint(hex, amount = 0.85) {
   const [r, g, b] = hexToRgb(hex);
   return [
@@ -109,7 +102,6 @@ function scoreColorOf(score) {
   return "#dc2626";
 }
 
-// Builds and downloads a polished, color-coded PDF audit report for a project.
 function generateAuditPdf(project) {
   if (!project) return;
 
@@ -647,9 +639,6 @@ function DashboardPage() {
   const [severityFilter, setSeverityFilter] = useState(null);
   const [methodFilter, setMethodFilter] = useState(null);
 
-  // Always (re)fetch the full, hydrated project from the backend — never trust
-  // a project object carried in navigation state, since it may have been
-  // captured before the audit ran and would have empty endpoint.auditResults.
   const loadProject = () => {
     setLoadingProject(true);
     return api
@@ -663,7 +652,6 @@ function DashboardPage() {
 
   useEffect(() => {
     loadProject();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   const runAudit = () => {
@@ -671,20 +659,17 @@ function DashboardPage() {
     setAuditError(null);
     api
       .post(`/api/projects/${projectId}/audit`)
-      .then(() => loadProject()) // refetch so endpoints[].auditResults are hydrated
+      .then(() => loadProject())
       .catch((err) => {
         setAuditError(err.response?.data?.message || "AI analysis failed. Please try again shortly.");
       })
       .finally(() => setAuditLoading(false));
   };
 
-  // If we've loaded a project that has never been scored, trigger the audit
-  // automatically (covers: fresh import, or landing here via a stale nav state).
   useEffect(() => {
     if (project && project.globalSecurityScore == null && !auditLoading && !auditError) {
       runAudit();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
 
   if (loadingProject && !project) {
@@ -737,8 +722,6 @@ function DashboardPage() {
   const remediationCount = allAudits.filter((a) => a.remediation).length;
   const criticalCount = severityCounts.CRITICAL || 0;
 
-  // Only show OWASP categories that actually have findings in this project,
-  // instead of a fixed/random subset of the Top 10.
   const owaspCodesPresent = new Set(allAudits.map((a) => owaspCodeOf(a.owaspCategory)).filter(Boolean));
   const presentOwaspCoverage = ALL_OWASP_CATEGORIES.filter((c) => owaspCodesPresent.has(c.code));
 
@@ -839,7 +822,7 @@ function DashboardPage() {
               </div>
             </div>
             <div className="pt-4 border-t border-blue-100/80 space-y-1.5 text-xs">
-              <div className="flex justify-between text-slate-500"><span>Findings totaux</span><span className="font-bold text-slate-800">{totalFindings}</span></div>
+              <div className="flex justify-between text-slate-500"><span>Total Findings</span><span className="font-bold text-slate-800">{totalFindings}</span></div>
               <div className="flex justify-between text-slate-500"><span>Affected routes</span><span className="font-bold text-slate-800">{affectedRoutesCount}/{totalEndpointsCount}</span></div>
               <div className="flex justify-between text-slate-500"><span>Density</span><span className="font-bold text-slate-800">{findingsDensity} / route</span></div>
               <div className="flex justify-between text-slate-500"><span>Remediation suggestions</span><span className="font-bold text-slate-800">{remediationCount}</span></div>

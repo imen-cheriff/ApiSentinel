@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import api from "../services/api";
 
-// Real pipeline, in order. Each step is tied to an actual phase of work —
-// no fixed fake timers deciding when we're "done".
-//   phase 0 -> POST /api/projects/import   (parse the OpenAPI file)
-//   phase 1 -> POST /api/projects/:id/audit (Gemini AI audit, can take up to ~1min)
-//   phase 2 -> both calls resolved, about to navigate
 const STEPS = [
   { label: "Reading OpenAPI file…", phase: 0 },
   { label: "Running AI audit (Gemini)…", phase: 1 },
@@ -13,20 +8,12 @@ const STEPS = [
   { label: "Generating report…", phase: 2 },
 ];
 
-// The checklist is allowed to visually crawl through the steps that belong
-// to the phase currently in flight, but never past it — the "Generating
-// report" step (phase 2) only becomes reachable once the audit call has
-// truly resolved.
 function maxStepForPhase(ph) {
-  if (ph === 0) return 0; // import in flight -> only step 0 belongs here
-  if (ph === 1) return 2; // audit in flight -> may crawl through steps 1-2
-  return STEPS.length - 1; // both calls resolved -> final step
+  if (ph === 0) return 0;
+  if (ph === 1) return 2;
+  return STEPS.length - 1; 
 }
 
-// Progressive pacing for the audit phase (~40s in practice): checkpoint 1
-// ticks off around 5s, checkpoint 2 around 15s, checkpoint 3 around 25s.
-// The final checkpoint ("Generating report") is NOT time-based — it appears
-// the instant the real audit call resolves (phase becomes 2).
 const CHECKPOINT_TIMES_MS = [5000, 15000, 25000];
 
 function timeStepForElapsed(ms) {
@@ -49,7 +36,7 @@ function OpenApiUploader({ onUploadSuccess }) {
   const [error, setError] = useState(null);
   const [fileName, setFileName] = useState(null);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [phase, setPhase] = useState(0); // 0 = importing, 1 = auditing, 2 = done
+  const [phase, setPhase] = useState(0);
   const [displayStep, setDisplayStep] = useState(0);
   const phaseRef = useRef(0);
   const resultsRef = useRef({ project: null, auditResult: null });
@@ -58,7 +45,6 @@ function OpenApiUploader({ onUploadSuccess }) {
     phaseRef.current = phase;
   }, [phase]);
 
-  // Real elapsed-time clock, running for as long as we're actually waiting.
   useEffect(() => {
     if (!isUploading) return;
     setElapsedMs(0);
@@ -77,8 +63,6 @@ function OpenApiUploader({ onUploadSuccess }) {
     setDisplayStep(target);
   }, [isUploading, elapsedMs, phase]);
 
-  // Once the checklist has visually caught up to the final step AND both
-  // real API calls have genuinely resolved, hand off to the dashboard.
   useEffect(() => {
     if (phase !== 2 || displayStep !== STEPS.length - 1) return;
     if (!resultsRef.current.auditResult) return;
@@ -87,7 +71,6 @@ function OpenApiUploader({ onUploadSuccess }) {
       setIsUploading(false);
     }, 300);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, displayStep]);
 
   const handleDragOver = (e) => {
@@ -126,22 +109,17 @@ function OpenApiUploader({ onUploadSuccess }) {
     formData.append("file", file);
 
     try {
-      // Step 1: import + parse the spec. We stay on this page and wait for
-      // the real response — no artificial delay.
       const importRes = await api.post("/api/projects/import", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       const project = importRes.data;
 
-      // Step 2: run the real AI audit. This can take up to ~1 minute — we
-      // keep showing progress here instead of navigating away first.
       setPhase(1);
       const auditRes = await api.post(`/api/projects/${project.id}/audit`);
 
-      // Both real calls are done now.
       resultsRef.current = { project, auditResult: auditRes.data };
       setPhase(2);
-      await new Promise((r) => setTimeout(r, 400)); // let the "done" tick register visually
+      await new Promise((r) => setTimeout(r, 400));
 
       onUploadSuccess({ project, auditResult: auditRes.data });
     } catch (err) {

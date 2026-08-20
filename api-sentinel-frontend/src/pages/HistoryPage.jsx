@@ -16,7 +16,6 @@ import {
     Activity,
 } from "lucide-react";
 
-// Same relative-time helper style used on the dashboard.
 function formatRelativeTime(timestamp) {
     if (!timestamp) return "À l'instant";
     const isoString = typeof timestamp === "string" ? timestamp.replace(" ", "T") : timestamp;
@@ -36,7 +35,6 @@ function formatRelativeTime(timestamp) {
     return `${diffInWeeks} week${diffInWeeks > 1 ? "s" : ""} ago`;
 }
 
-// Score → status badge, thresholds match the mockup (29 red / 41,68 amber / 84 clean).
 function statusForScore(score) {
     if (score == null) return { label: "PENDING", color: "#64748b" };
     if (score < 50) return { label: "ACTION REQUIRED", color: "#dc2626" };
@@ -69,8 +67,6 @@ function ScoreEvolutionChart({ points }) {
         return { x, y, score: p.score, scanDate: p.scanDate };
     });
 
-    // Smooth the line with a simple cubic bezier between points instead of
-    // sharp straight segments — gives the sparkline a softer, more polished feel.
     const linePath = coords.reduce((acc, c, i) => {
         if (i === 0) return `M ${c.x} ${c.y}`;
         const prev = coords[i - 1];
@@ -80,7 +76,6 @@ function ScoreEvolutionChart({ points }) {
 
     const areaPath = `${linePath} L ${coords[coords.length - 1].x} ${height - padding} L ${coords[0].x} ${height - padding} Z`;
 
-    // Horizontal gridlines at nice fractions of the chart height.
     const gridLines = [0, 0.25, 0.5, 0.75, 1];
 
     return (
@@ -192,8 +187,6 @@ function hexToRgb(hex) {
     return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
 }
 
-// Blend a hex color toward white — used for soft tinted table cells, same
-// technique as the per-project audit PDF on the dashboard.
 function tint(hex, amount = 0.85) {
     const [r, g, b] = hexToRgb(hex);
     return [
@@ -210,8 +203,6 @@ function scoreColorOf(score) {
     return "#dc2626";
 }
 
-// Builds and downloads a colored, well-organised PDF of the scan history:
-// a header band, summary stat boxes, then a color-coded table (one row per scan).
 function exportScansToPdf(scans) {
     if (!scans || scans.length === 0) return;
 
@@ -230,7 +221,6 @@ function exportScansToPdf(scans) {
     const pageWidth = doc.internal.pageSize.getWidth();
     const marginX = 40;
 
-    // Header band
     doc.setFillColor(...hexToRgb("#1d4ed8"));
     doc.rect(0, 0, pageWidth, 92, "F");
     doc.setTextColor(255, 255, 255);
@@ -245,7 +235,6 @@ function exportScansToPdf(scans) {
 
     let y = 118;
 
-    // Summary stat boxes
     const statBoxes = [
         { label: "TOTAL SCANS", value: `${scans.length}`, color: "#2563eb" },
         { label: "AVG SCORE", value: avgScore != null ? `${avgScore}/100` : "—", color: scoreColorOf(avgScore) },
@@ -267,7 +256,6 @@ function exportScansToPdf(scans) {
 
     y += 80;
 
-    // Table: one color-coded row per scan
     autoTable(doc, {
         startY: y,
         margin: { left: marginX, right: marginX },
@@ -298,7 +286,6 @@ function exportScansToPdf(scans) {
             const scan = scans[data.row.index];
             const score = scan.securityScore ?? scan.globalSecurityScore;
             const status = statusForScore(score);
-            // Tint the Score and Status columns to match their severity color.
             if (data.column.index === 2 || data.column.index === 3) {
                 data.cell.styles.fillColor = tint(status.color, 0.85);
                 data.cell.styles.textColor = hexToRgb(status.color);
@@ -323,7 +310,6 @@ function HistoryPage() {
         api
             .get("/api/projects")
             .then((res) => {
-                // Newest first, matching the mockup.
                 const sorted = [...res.data].sort(
                     (a, b) => new Date(b.scanDate) - new Date(a.scanDate)
                 );

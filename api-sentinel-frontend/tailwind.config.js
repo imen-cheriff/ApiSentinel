@@ -1,9 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: "class",
   content: ["./index.html", "./src/**/*.{js,jsx}"],
   theme: {
     extend: {
-      // add these two blocks in here, alongside whatever's already there
       fontFamily: {
         display: ['"Space Grotesk"', "sans-serif"],
         mono: ['"JetBrains Mono"', "monospace"],

@@ -29,14 +29,13 @@ function FindingDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [project, setProject] = useState(location.state?.project ?? null);
-  const [falsePositive, setFalsePositive] = useState(false); // UI-only for now, see note below
+  const [falsePositive, setFalsePositive] = useState(false);
 
   useEffect(() => {
-    if (project) return; // came with state, e.g. from the dashboard cards
+    if (project) return;
     api.get(`/api/projects/${projectId}`).then((res) => setProject(res.data));
   }, [projectId, project]);
 
-  // Flatten every (endpoint, finding) pair into one ordered list for prev/next.
   const findings = useMemo(() => {
     if (!project?.endpoints) return [];
     return project.endpoints.flatMap((ep) =>
@@ -68,8 +67,6 @@ function FindingDetailPage() {
     navigate(`/dashboard/${projectId}/findings/${f.endpoint.id}/${f.audit.id}`, { state: { project } });
   };
 
-  // No raw OpenAPI snippet is stored per endpoint yet, so this is reconstructed
-  // from the parsed fields (path/method/parameters) rather than the literal source text.
   const specSnippet = `"${endpoint.path}": {
   "${endpoint.method.toLowerCase()}": {
     "summary": "${endpoint.summary || ""}",

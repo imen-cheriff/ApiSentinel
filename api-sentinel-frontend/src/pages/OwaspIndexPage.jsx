@@ -13,7 +13,7 @@ function OwaspIndexPage() {
       .then((res) => {
         const projects = res.data || [];
         if (projects.length === 0) {
-          navigate("/", { replace: true }); // nothing scanned yet -> back to upload
+          navigate("/", { replace: true });
           return;
         }
         const latest = [...projects].sort(
