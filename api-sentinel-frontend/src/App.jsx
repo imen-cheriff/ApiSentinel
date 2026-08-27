@@ -6,11 +6,9 @@ import FindingDetailPage from "./pages/FindingDetailPage";
 import DashboardIndexPage from "./pages/DashboardIndexPage";
 import OwaspPage from "./pages/OwaspPage";
 import OwaspIndexPage from "./pages/OwaspIndexPage";
-import { ThemeProvider } from "./context/ThemeContext";
 
 function App() {
   return (
-    <ThemeProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<UploadPage />} />
@@ -22,7 +20,6 @@ function App() {
           <Route path="/owasp/:projectId" element={<OwaspPage />} />
         </Routes>
       </BrowserRouter>
-    </ThemeProvider>
   );
 }
 
