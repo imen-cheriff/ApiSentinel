@@ -2,6 +2,7 @@ package com.apisentinel.backend.controller;
 
 import com.apisentinel.backend.entity.Endpoint;
 import com.apisentinel.backend.entity.Project;
+import com.apisentinel.backend.exception.ResourceNotFoundException;
 import com.apisentinel.backend.repository.ProjectRepository;
 import com.apisentinel.backend.service.OpenApiParserService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,7 +42,7 @@ public class ProjectController {
     @GetMapping("/{id}")
     public Project getProject(@PathVariable Long id) {
         return projectRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Project not found: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Project not found: " + id));
     }
 
     @GetMapping
@@ -52,7 +53,7 @@ public class ProjectController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteProject(@PathVariable Long id) {
         if (!projectRepository.existsById(id)) {
-            throw new RuntimeException("Project not found: " + id);
+            throw new ResourceNotFoundException("Project not found: " + id);
         }
         projectRepository.deleteById(id);
         return ResponseEntity.noContent().build();

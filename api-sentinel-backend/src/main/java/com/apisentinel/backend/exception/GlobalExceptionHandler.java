@@ -15,6 +15,12 @@ public class GlobalExceptionHandler {
 
     public record ErrorResponse(String code, String message) {}
 
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNotFound(ResourceNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ErrorResponse("NOT_FOUND", ex.getMessage()));
+    }
+
     @ExceptionHandler(GeminiClient.QuotaExceededException.class)
     public ResponseEntity<ErrorResponse> handleQuotaExceeded(GeminiClient.QuotaExceededException ex) {
         log.warn("Gemini quota exceeded: {}", ex.getMessage());
