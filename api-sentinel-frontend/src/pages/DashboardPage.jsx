@@ -316,11 +316,18 @@ function generateAuditPdf(project) {
 }
 
 /* ---------------- Score Gauge Component ---------------- */
+function scoreGaugeColorOf(score) {
+  if (score >= 80) return "#2563eb"; // bleu - CLEAN
+  if (score >= 50) return "#ca8a04"; // jaune/orange - REVIEW
+  return "#dc2626"; // rouge - ACTION REQUIRED
+}
+
 function ScoreGauge({ score, size = 130 }) {
   const strokeWidth = 10;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (score / 100) * circumference;
+  const gaugeColor = scoreGaugeColorOf(score); // ← nouveau
 
   return (
     <div className="relative grid place-items-center" style={{ width: size, height: size }}>
@@ -330,7 +337,8 @@ function ScoreGauge({ score, size = 130 }) {
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          className="stroke-blue-600 transition-all duration-1000 ease-out"
+          className="transition-all duration-1000 ease-out"
+          style={{ stroke: gaugeColor }}
           strokeWidth={strokeWidth}
           strokeDasharray={circumference}
           strokeDashoffset={strokeDashoffset}
@@ -339,12 +347,18 @@ function ScoreGauge({ score, size = 130 }) {
         />
       </svg>
       <div className="absolute text-center">
-        <span className="font-mono text-3xl font-bold tracking-tight text-slate-800">{score}</span>
+        <span
+          className="font-mono text-3xl font-bold tracking-tight"
+          style={{ color: gaugeColor }}
+        >
+          {score}
+        </span>
         <span className="block font-mono text-[10px] text-slate-500">/ 100</span>
       </div>
     </div>
   );
 }
+
 
 /* ---------------- Endpoint Card ---------------- */
 function EndpointCard({ endpoint, onClick }) {
@@ -583,18 +597,22 @@ function DashboardHeader({ project, scanComplete, onExport, onNewAnalysis }) {
   return (
     <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-blue-200/60 pb-4">
       <div className="flex items-center gap-3">
-        <div className="p-2 bg-white/90 border border-blue-200 rounded-lg text-blue-700 shadow-sm">
-          <Shield className="w-5 h-5" />
+        <div className="flex h-10 w-14 items-center justify-center overflow-hidden rounded-lg bg-transparent">
+          <img
+            src="/api_sentinel_logo_.png"
+            alt="API Sentinel logo"
+            className="h-12 w-12 object-contain"
+          />
         </div>
         <div>
           <div className="flex items-center gap-2">
-            <span className="font-extrabold text-base tracking-tight text-blue-800 uppercase">API SENTINEL</span>
+            <span className="font-extrabold text-base tracking-tight text-blue-500 uppercase">API SENTINEL</span>
             <span className="text-[10px] text-slate-400 uppercase tracking-wider">SECURITY AUDIT CONSOLE</span>
           </div>
           <nav className="flex items-center gap-4 mt-1 text-xs font-semibold">
-            <span className="text-blue-700">Dashboard</span>
-            <button onClick={() => navigate(`/owasp/${project.id}`, { state: { project } })} className="text-slate-500 hover:text-blue-700 transition-colors">OWASP</button>
-            <button onClick={() => navigate("/history")} className="text-slate-500 hover:text-blue-700 transition-colors">
+            <span className="text-blue-500">Dashboard</span>
+            <button onClick={() => navigate(`/owasp/${project.id}`, { state: { project } })} className="text-slate-500 hover:text-blue-500 transition-colors">OWASP</button>
+            <button onClick={() => navigate("/history")} className="text-slate-500 hover:text-blue-500 transition-colors">
               History
             </button>
           </nav>
@@ -616,12 +634,59 @@ function DashboardHeader({ project, scanComplete, onExport, onNewAnalysis }) {
         </button>
         <button
           onClick={onNewAnalysis}
-          className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-sm text-xs"
+          className="px-3 py-1.5 rounded-lg bg-blue-500 text-white font-semibold hover:bg-blue-600 transition-colors flex items-center gap-1.5 shadow-sm text-xs"
         >
           <RotateCw className="w-3.5 h-3.5" /> New analysis
         </button>
       </div>
     </header>
+  );
+}
+
+/*----------------- Project Not Found Screen ---------------- */
+function ProjectNotFoundScreen({ loadError, onBackHome, onBackHistory }) {
+  return (
+    <div className="relative min-h-screen w-full bg-[#eef2f8] text-slate-900 font-mono flex items-center justify-center px-6 overflow-hidden">
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <GridPattern
+          width={20} height={20} x={-1} y={-1}
+          className={cn(
+            "fill-red-400/10 stroke-red-500/25",
+            "[mask-image:linear-gradient(to_bottom_right,white,transparent_40%,transparent_60%,white)]"
+          )}
+        />
+      </div>
+
+      <div className="relative z-10 w-full max-w-[430px] rounded-[26px] text-left overflow-hidden p-7 border border-red-200/90 bg-gradient-to-br from-red-50/95 via-red-50/90 to-white/90 shadow-[0_18px_45px_rgba(239,68,68,0.12),0_0_0_1px_rgba(239,68,68,0.08)] backdrop-blur-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-100 ring-1 ring-red-200/80 shadow-inner shadow-red-200/50">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
+          </div>
+          <p className="text-[15px] font-semibold tracking-[0.02em] text-red-800">
+            {loadError.notFound ? "Project not found" : "Could not load project"}
+          </p>
+        </div>
+        <p className="text-sm text-red-700/90 mb-7 ml-1 leading-relaxed max-w-[320px]">
+          {loadError.notFound
+            ? "This project doesn't exist, or it may have been deleted."
+            : loadError.message}
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onBackHistory}
+            className="flex-1 px-4 py-3 rounded-xl bg-white/80 border border-red-200 text-red-700 font-semibold hover:bg-red-50 transition-all duration-200 flex items-center justify-center gap-2 text-xs shadow-sm hover:shadow-md"
+          >
+            View history
+          </button>
+          <button
+            onClick={onBackHome}
+            className="flex-1 px-4 py-3 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700 transition-all duration-200 flex items-center justify-center gap-2 text-xs shadow-[0_8px_18px_rgba(220,38,38,0.28)] hover:shadow-[0_10px_20px_rgba(220,38,38,0.32)]"
+          >
+            <RotateCw className="w-3.5 h-3.5" /> New analysis
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -633,6 +698,7 @@ function DashboardPage() {
 
   const [project, setProject] = useState(null);
   const [loadingProject, setLoadingProject] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState(null);
   const [search, setSearch] = useState("");
@@ -642,11 +708,21 @@ function DashboardPage() {
 
   const loadProject = () => {
     setLoadingProject(true);
+    setLoadError(null);
     return api
       .get(`/api/projects/${projectId}`)
       .then((res) => {
         setProject(res.data);
         return res.data;
+      })
+      .catch((err) => {
+        setProject(null);
+        setLoadError({
+          notFound: err.response?.status === 404,
+          message:
+            err.response?.data?.message ||
+            "This project could not be loaded.",
+        });
       })
       .finally(() => setLoadingProject(false));
   };
@@ -686,6 +762,16 @@ function DashboardPage() {
         <Activity className="w-6 h-6 animate-spin text-blue-600" />
         <span className="text-xs tracking-wider uppercase">Loading the Threat Dashboard…</span>
       </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <ProjectNotFoundScreen
+        loadError={loadError}
+        onBackHome={() => navigate("/")}
+        onBackHistory={() => navigate("/history")}
+      />
     );
   }
 
@@ -901,51 +987,6 @@ function DashboardPage() {
             </div>
           </div>
         </div>
-
-        {/* Pipeline Bar
-        <div className="bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md border border-blue-200/80 rounded-xl px-5 py-3 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9)]">
-          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-            <Layers className="w-3.5 h-3.5 text-blue-600" /> ANALYSIS PIPELINE
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <div>
-                <div className="font-bold text-slate-800 text-[11px]">Parsing the OpenAPI contract</div>
-                <div className="text-[10px] text-slate-400">{totalEndpointsCount} routes detected</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={cn("w-2 h-2 rounded-full", auditError ? "bg-red-500" : auditLoading ? "bg-amber-500 animate-pulse" : "bg-emerald-500")} />
-              <div>
-                <div className="font-bold text-slate-800 text-[11px]">AI analysis (Gemini)</div>
-                <div className="text-[10px] text-slate-400">{auditError ? "Analysis failed" : auditLoading ? "In progress…" : "Complete"}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={cn("w-2 h-2 rounded-full", auditError ? "bg-red-500" : auditLoading ? "bg-slate-300" : "bg-emerald-500")} />
-              <div>
-                <div className="font-bold text-slate-800 text-[11px]">OWASP Top 10 correlations</div>
-                <div className="text-[10px] text-slate-400">{auditLoading ? "Pending…" : `${totalFindings} finding${totalFindings > 1 ? "s" : ""} identified`}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={cn("w-2 h-2 rounded-full", auditError ? "bg-red-500" : auditLoading ? "bg-slate-300" : "bg-emerald-500")} />
-              <div>
-                <div className="font-bold text-slate-800 text-[11px]">Scoring & prioritization</div>
-                <div className="text-[10px] text-slate-400">{auditLoading ? "Pending…" : `Overall score ${project.globalSecurityScore}/100`}</div>
-              </div>
-            </div>
-          </div>
-          {auditError && (
-            <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-              <span>{auditError}</span>
-              <button onClick={runAudit} className="shrink-0 px-2.5 py-1 rounded-md bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors text-[11px]">
-                Retry
-              </button>
-            </div>
-          )}
-        </div> */}
 
         {/* Filter Bar */}
         <div className="bg-gradient-to-b from-white/95 via-white/85 to-white/75 backdrop-blur-md border border-blue-200/80 rounded-xl p-3 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">

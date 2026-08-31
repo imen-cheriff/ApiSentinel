@@ -253,9 +253,9 @@ function exportScansToPdf(scans) {
     const scoredScans = scans.filter((s) => (s.securityScore ?? s.globalSecurityScore) != null);
     const avgScore = scoredScans.length
         ? Math.round(
-              scoredScans.reduce((sum, s) => sum + (s.securityScore ?? s.globalSecurityScore), 0) /
-                  scoredScans.length
-          )
+            scoredScans.reduce((sum, s) => sum + (s.securityScore ?? s.globalSecurityScore), 0) /
+            scoredScans.length
+        )
         : null;
     const totalRoutes = scans.reduce((sum, s) => sum + (s.endpoints?.length || 0), 0);
     const totalFindings = scans.reduce((sum, s) => sum + (findingsCountOf(s) || 0), 0);
@@ -407,23 +407,22 @@ function HistoryPage() {
                 {/* Header */}
                 <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-blue-200/60 pb-4">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-white/90 border border-blue-200 rounded-lg text-blue-700 shadow-sm">
-                            <Shield className="w-5 h-5" />
+                        <div className="flex h-10 w-14 items-center justify-center overflow-hidden rounded-lg bg-transparent">
+                            <img
+                                src="/api_sentinel_logo_.png"
+                                alt="API Sentinel logo"
+                                className="h-12 w-12 object-contain"
+                            />
                         </div>
                         <div>
                             <div className="flex items-center gap-2">
-                                <span className="font-extrabold text-base tracking-tight text-blue-800 uppercase">
-                                    API SENTINEL
-                                </span>
-                                <span className="text-[10px] text-slate-400 uppercase tracking-wider">
-                                    SECURITY AUDIT CONSOLE
-                                </span>
+                                <span className="font-extrabold text-base tracking-tight text-blue-500 uppercase">API SENTINEL</span>
+                                <span className="text-[10px] text-slate-400 uppercase tracking-wider">SECURITY AUDIT CONSOLE</span>
                             </div>
                             <nav className="flex items-center gap-4 mt-1 text-xs font-semibold">
-                                <button onClick={() => navigate("/dashboard")} className="text-slate-500 hover:text-blue-700 transition-colors">Dashboard</button>
-                                <button onClick={() => navigate("/owasp")} className="text-slate-500 hover:text-blue-700 transition-colors">OWASP</button>
-                                <span className="text-blue-700">History</span>
-                                
+                                <button onClick={() => navigate("/dashboard")} className="text-slate-500 hover:text-blue-500 transition-colors">Dashboard</button>
+                                <button onClick={() => navigate("/owasp")} className="text-slate-500 hover:text-blue-500 transition-colors">OWASP</button>
+                                <span className="text-blue-500">History</span>
                             </nav>
                         </div>
                     </div>
@@ -438,7 +437,7 @@ function HistoryPage() {
                         </button>
                         <button
                             onClick={() => navigate("/")}
-                            className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-sm text-xs"
+                            className="px-3 py-1.5 rounded-lg bg-blue-500 text-white font-semibold hover:bg-blue-600 transition-colors flex items-center gap-1.5 shadow-sm text-xs"
                         >
                             <RotateCw className="w-3.5 h-3.5" /> New analysis
                         </button>

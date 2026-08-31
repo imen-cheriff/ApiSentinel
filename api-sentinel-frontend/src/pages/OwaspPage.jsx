@@ -250,20 +250,24 @@ function OwaspPage() {
         {/* Header — identical markup/classes to Dashboard & History, OWASP tab active here */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-blue-200/60 pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/90 border border-blue-200 rounded-lg text-blue-700 shadow-sm">
-              <Shield className="w-5 h-5" />
+            <div className="flex h-10 w-14 items-center justify-center overflow-hidden rounded-lg bg-transparent">
+              <img
+                src="/api_sentinel_logo_.png"
+                alt="API Sentinel logo"
+                className="h-12 w-12 object-contain"
+              />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-base tracking-tight text-blue-800 uppercase">API SENTINEL</span>
+                <span className="font-extrabold text-base tracking-tight text-blue-500 uppercase">API SENTINEL</span>
                 <span className="text-[10px] text-slate-400 uppercase tracking-wider">SECURITY AUDIT CONSOLE</span>
               </div>
               <nav className="flex items-center gap-4 mt-1 text-xs font-semibold">
-                <button onClick={() => navigate(`/dashboard/${projectId}`, { state: { project } })} className="text-slate-500 hover:text-blue-700 transition-colors">
+                <button onClick={() => navigate(`/dashboard/${projectId}`, { state: { project } })} className="text-slate-500 hover:text-blue-500 transition-colors">
                   Dashboard
                 </button>
-                <span className="text-blue-700">OWASP</span>
-                <button onClick={() => navigate("/history")} className="text-slate-500 hover:text-blue-700 transition-colors">
+                <span className="text-blue-500">OWASP</span>
+                <button onClick={() => navigate("/history")} className="text-slate-500 hover:text-blue-500 transition-colors">
                   History
                 </button>
               </nav>

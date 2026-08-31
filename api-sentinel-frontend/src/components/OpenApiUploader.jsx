@@ -122,16 +122,22 @@ function OpenApiUploader({ onUploadSuccess }) {
       onUploadSuccess({ project, auditResult: auditRes.data });
     } catch (err) {
       const code = err.response?.data?.code;
+      let errorMessage;
       if (code === "QUOTA_EXCEEDED") {
-        setError("Quota Gemini quotidien épuisé, réessayez plus tard.");
+        errorMessage = "Quota Gemini quotidien épuisé, réessayez plus tard.";
       } else {
-        setError(
+        errorMessage =
           err.response?.data?.message ||
           (phaseRef.current === 0
             ? "Import failed. Please check your file and try again."
-            : "AI audit failed. Please try again.")
-        );
+            : "AI audit failed. Please try again.");
       }
+      setError(errorMessage);
+      notify({
+        title: "Analyse échouée ❌",
+        body: errorMessage,
+        blinkText: "Échec de l'analyse",
+      });
       setIsUploading(false);
     }
   };
@@ -145,32 +151,34 @@ function OpenApiUploader({ onUploadSuccess }) {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`relative rounded-2xl text-center overflow-hidden transition-all duration-200 ${isUploading ? "p-10" : "p-14"
-        } ${isUploading
-          ? "border border-blue-200 bg-blue-50/90 shadow-[0_0_0_1px_rgba(29,78,216,0.06)]"
+      className={`relative mx-auto w-full max-w-[760px] overflow-hidden rounded-[28px] text-center transition-all duration-250 ${isUploading ? "p-8 md:p-10" : "p-8 md:p-14"} ${
+        isUploading
+          ? "border border-blue-200/80 bg-gradient-to-br from-blue-50/90 via-white to-blue-50/80 shadow-[0_20px_45px_rgba(59,130,246,0.10),0_0_0_1px_rgba(59,130,246,0.08)]"
           : isDragging
-            ? "border border-blue-500 bg-blue-50 shadow-[0_0_0_1px_rgba(29,78,216,0.2),0_0_32px_rgba(29,78,216,0.12)]"
-            : "border border-dashed border-blue-200 bg-white/80 hover:border-blue-400 hover:-translate-y-0.5 backdrop-blur-sm"
-        }`}
+            ? "border border-blue-400 bg-gradient-to-br from-blue-50 via-white to-blue-100/80 shadow-[0_18px_40px_rgba(59,130,246,0.14),0_0_0_1px_rgba(59,130,246,0.18)]"
+            : "border border-dashed border-blue-300/80 bg-gradient-to-br from-white/80 via-blue-50/50 to-blue-100/30 shadow-[0_12px_30px_rgba(59,130,246,0.06)] hover:border-blue-400 hover:shadow-[0_18px_40px_rgba(59,130,246,0.10)]"
+      }`}
     >
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.10),transparent_58%)]" />
+
       {/* HUD corner brackets */}
-      <span className={cornerClasses("top-0 left-0 rounded-tl-md border-r-0 border-b-0", isDragging || isUploading)} />
-      <span className={cornerClasses("top-0 right-0 rounded-tr-md border-l-0 border-b-0", isDragging || isUploading)} />
-      <span className={cornerClasses("bottom-0 left-0 rounded-bl-md border-r-0 border-t-0", isDragging || isUploading)} />
-      <span className={cornerClasses("bottom-0 right-0 rounded-br-md border-l-0 border-t-0", isDragging || isUploading)} />
+      <span className={cornerClasses("top-0 left-0 rounded-tl-xl border-r-0 border-b-0", isDragging || isUploading)} />
+      <span className={cornerClasses("top-0 right-0 rounded-tr-xl border-l-0 border-b-0", isDragging || isUploading)} />
+      <span className={cornerClasses("bottom-0 left-0 rounded-bl-xl border-r-0 border-t-0", isDragging || isUploading)} />
+      <span className={cornerClasses("bottom-0 right-0 rounded-br-xl border-l-0 border-t-0", isDragging || isUploading)} />
 
       {/* scanning sweep */}
       <div
-        className="absolute left-0 right-0 h-16 -top-16 pointer-events-none animate-[sweep_4.5s_linear_infinite]"
+        className="absolute left-0 right-0 h-16 -top-14 pointer-events-none animate-[sweep_4.5s_linear_infinite]"
         style={{
           background:
-            "linear-gradient(180deg, transparent, rgba(29,78,216,0.08), transparent)",
+            "linear-gradient(180deg, transparent, rgba(59,130,246,0.10), transparent)",
         }}
       />
 
       {isUploading ? (
         <div className="relative z-10 text-left">
-          <div className="flex items-start justify-between gap-4 mb-1">
+          <div className="flex items-start justify-between gap-4 mb-2">
             <div className="flex items-center gap-2.5 min-w-0">
               {!allDone ? (
                 <svg
@@ -266,9 +274,9 @@ function OpenApiUploader({ onUploadSuccess }) {
             })}
           </ul>
 
-          <div className="h-0.5 bg-blue-100 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-blue-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-blue-600 transition-all duration-500 ease-out"
+              className="h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-700 transition-all duration-500 ease-out"
               style={{ width: `${Math.max(progressPct, 8)}%` }}
             />
           </div>
@@ -280,27 +288,29 @@ function OpenApiUploader({ onUploadSuccess }) {
           )}
         </div>
       ) : (
-        <div className="relative z-10">
-          <svg
-            className="w-10 h-10 mx-auto mb-4 text-blue-600"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.4"
-          >
-            <path d="M12 3v12" strokeLinecap="round" />
-            <path d="M7 8l5-5 5 5" strokeLinecap="round" strokeLinejoin="round" />
-            <path
-              d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+        <div className="relative z-10 flex flex-col items-center justify-center">
+          <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-100 ring-1 ring-blue-200/80 shadow-inner shadow-blue-200/50">
+            <svg
+              className="h-8 w-8 text-blue-600"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+            >
+              <path d="M12 3v12" strokeLinecap="round" />
+              <path d="M7 8l5-5 5 5" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
 
-          <p className="text-slate-700 text-sm font-medium mb-1">
+          <p className="max-w-[520px] text-sm font-medium text-slate-700 md:text-[15px]">
             Drag and drop your OpenAPI / Swagger file (.json, .yaml, .yml) here
           </p>
-          <p className="text-slate-600 text-xs mb-3">or</p>
+          <p className="my-3 text-xs text-slate-500">or</p>
 
           <input
             type="file"
@@ -311,7 +321,7 @@ function OpenApiUploader({ onUploadSuccess }) {
           />
           <label
             htmlFor="file-input"
-            className="text-blue-600 text-sm cursor-pointer border-b border-blue-300 pb-0.5 hover:text-blue-700 hover:border-blue-500 transition-colors"
+            className="cursor-pointer text-sm font-medium text-blue-600 transition-colors duration-200 hover:text-blue-700"
           >
             click to browse
           </label>
@@ -319,7 +329,7 @@ function OpenApiUploader({ onUploadSuccess }) {
       )}
 
       {error && (
-        <p className="relative z-10 text-red-500 text-xs mt-4">{error}</p>
+        <p className="relative z-10 mt-4 text-xs text-red-500">{error}</p>
       )}
     </div>
   );

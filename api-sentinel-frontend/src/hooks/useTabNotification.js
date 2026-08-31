@@ -1,39 +1,70 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useCallback } from "react";
+
+// État partagé au niveau module : survit au montage/démontage de n'importe
+// quel composant qui utilise le hook (ex: OpenApiUploader qui disparaît
+// après un succès et laisse la place au dashboard).
+let originalTitle = typeof document !== "undefined" ? document.title : "";
+let blinkIntervalId = null;
+let isTabVisible =
+  typeof document !== "undefined" ? !document.hidden && document.hasFocus() : true;
+let listenerCount = 0;
+
+function computeVisible() {
+  return !document.hidden && document.hasFocus();
+}
+
+function stopBlinking() {
+  if (blinkIntervalId) {
+    clearInterval(blinkIntervalId);
+    blinkIntervalId = null;
+    document.title = originalTitle;
+  }
+}
+
+function startBlinking(blinkText) {
+  if (isTabVisible) return;
+  stopBlinking();
+  originalTitle = document.title;
+  let showBlink = true;
+  blinkIntervalId = setInterval(() => {
+    document.title = showBlink ? blinkText : originalTitle;
+    showBlink = !showBlink;
+  }, 1000);
+}
+
+function markHidden() {
+  isTabVisible = false;
+}
+
+function markVisibleIfActive() {
+  isTabVisible = computeVisible();
+  if (isTabVisible) stopBlinking();
+}
+
+function handleVisibilityChange() {
+  if (document.hidden) markHidden();
+  else markVisibleIfActive();
+}
 
 export function useTabNotification() {
-  const originalTitleRef = useRef(document.title);
-  const blinkIntervalRef = useRef(null);
-  const isTabVisibleRef = useRef(!document.hidden);
-
+  // Les listeners globaux ne sont attachés qu'une seule fois, tant qu'au
+  // moins un composant utilise le hook (compteur de référence).
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      isTabVisibleRef.current = !document.hidden;
-      if (isTabVisibleRef.current) {
-        stopBlinking();
+    listenerCount += 1;
+    if (listenerCount === 1) {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      window.addEventListener("blur", markHidden);
+      window.addEventListener("focus", markVisibleIfActive);
+    }
+    return () => {
+      listenerCount -= 1;
+      if (listenerCount === 0) {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        window.removeEventListener("blur", markHidden);
+        window.removeEventListener("focus", markVisibleIfActive);
       }
     };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
-
-  const stopBlinking = useCallback(() => {
-    if (blinkIntervalRef.current) {
-      clearInterval(blinkIntervalRef.current);
-      blinkIntervalRef.current = null;
-      document.title = originalTitleRef.current;
-    }
-  }, []);
-
-  const startBlinking = useCallback((blinkText) => {
-    if (isTabVisibleRef.current) return;
-    stopBlinking();
-    originalTitleRef.current = document.title;
-    let showBlink = true;
-    blinkIntervalRef.current = setInterval(() => {
-      document.title = showBlink ? blinkText : originalTitleRef.current;
-      showBlink = !showBlink;
-    }, 1000);
-  }, [stopBlinking]);
 
   const requestPermissionIfNeeded = useCallback(async () => {
     if (!("Notification" in window)) return "unsupported";
@@ -66,16 +97,14 @@ export function useTabNotification() {
   }, []);
 
   const notify = useCallback(
-    ({ title = "Analyse terminée ✅", body = "", blinkText = "✅ Analyse terminée" }) => {
-      if (!isTabVisibleRef.current) {
+    ({ title = "Analyse terminée", body = "", blinkText = "Analyse terminée" }) => {
+      if (!isTabVisible) {
         startBlinking(blinkText);
         sendBrowserNotification(title, body);
       }
     },
-    [startBlinking, sendBrowserNotification]
+    [sendBrowserNotification]
   );
-
-  useEffect(() => stopBlinking, [stopBlinking]);
 
   return { notify, requestPermissionIfNeeded };
 }
