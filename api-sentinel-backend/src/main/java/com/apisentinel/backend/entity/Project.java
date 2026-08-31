@@ -22,42 +22,77 @@ public class Project {
     @OneToMany(mappedBy = "project", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Endpoint> endpoints;
 
-
-    private static final Map<RiskLevel, Double> RISK_WEIGHT = Map.of(
-            RiskLevel.CRITICAL, 0.40,
-            RiskLevel.HIGH,     0.25,
-            RiskLevel.MEDIUM,   0.12,
-            RiskLevel.LOW,      0.05
+    private static final Map<RiskLevel, Integer> ROUTE_SCORE_BY_WORST_RISK = Map.of(
+            RiskLevel.CRITICAL, 10,
+            RiskLevel.HIGH,     35,
+            RiskLevel.MEDIUM,   65,
+            RiskLevel.LOW,      85
     );
 
-    private static final double DEFAULT_WEIGHT = 0.08; // inconnue
-
-    private static final int REFERENCE_ENDPOINT_COUNT = 6;
-    private static final double MAX_COVERAGE_ADJUSTMENT = 5.0;
+    private static final int NO_FINDING_ROUTE_SCORE = 100;
+    private static final int UNKNOWN_RISK_ROUTE_SCORE = 50; // repli si riskLevel est null/invalide
 
     public void calculateSecurityScore(List<AuditResult> allResults) {
-        if (allResults == null || allResults.isEmpty()) {
+        List<Endpoint> routes = resolveRoutes(allResults);
+
+        if (routes.isEmpty()) {
             this.globalSecurityScore = 100;
             return;
         }
 
-        double survivalProbability = allResults.stream()
-                .mapToDouble(r -> 1.0 - RISK_WEIGHT.getOrDefault(r.getRiskLevel(), DEFAULT_WEIGHT))
-                .reduce(1.0, (a, b) -> a * b);
+        double sumOfRouteScores = 0;
+        for (Endpoint endpoint : routes) {
+            sumOfRouteScores += worstFindingScoreForRoute(endpoint);
+        }
 
-        double cumulativeRisk = 1.0 - survivalProbability;
-
-        double baseScore = 100.0 * (1.0 - cumulativeRisk);
-
-        int totalEndpoints = (this.endpoints != null && !this.endpoints.isEmpty())
-                ? this.endpoints.size()
-                : allResults.size();
-
-        double coverageRatio = totalEndpoints / (double) REFERENCE_ENDPOINT_COUNT;
-        double coverageAdjustment = MAX_COVERAGE_ADJUSTMENT * Math.tanh(coverageRatio - 1.0);
-
-        int score = (int) Math.round(baseScore + coverageAdjustment);
+        int score = (int) Math.round(sumOfRouteScores / routes.size());
         this.globalSecurityScore = Math.max(0, Math.min(100, score));
+    }
+
+    private List<Endpoint> resolveRoutes(List<AuditResult> allResults) {
+        if (this.endpoints != null && !this.endpoints.isEmpty()) {
+            return this.endpoints;
+        }
+        // Repli défensif : si les endpoints ne sont pas chargés sur l'entité
+        // mais que les résultats portent une référence vers leur endpoint,
+        // on reconstruit la liste des routes distinctes à partir de là.
+        if (allResults != null && !allResults.isEmpty()) {
+            return allResults.stream()
+                    .map(AuditResult::getEndpoint)
+                    .filter(java.util.Objects::nonNull)
+                    .distinct()
+                    .toList();
+        }
+        return List.of();
+    }
+
+    private int worstFindingScoreForRoute(Endpoint endpoint) {
+        List<AuditResult> results = endpoint.getAuditResults();
+        if (results == null || results.isEmpty()) {
+            return NO_FINDING_ROUTE_SCORE;
+        }
+
+        RiskLevel worst = null;
+        int worstRank = -1;
+        for (AuditResult result : results) {
+            int rank = severityRank(result.getRiskLevel());
+            if (rank > worstRank) {
+                worstRank = rank;
+                worst = result.getRiskLevel();
+            }
+        }
+
+        return ROUTE_SCORE_BY_WORST_RISK.getOrDefault(worst, UNKNOWN_RISK_ROUTE_SCORE);
+    }
+
+    private int severityRank(RiskLevel level) {
+        if (level == null) return 0;
+        return switch (level) {
+            case CRITICAL -> 4;
+            case HIGH -> 3;
+            case MEDIUM -> 2;
+            case LOW -> 1;
+        };
     }
 
     public Long getId() {

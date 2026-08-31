@@ -74,7 +74,7 @@ public class GeminiClient {
         try {
             return callGeminiWithRetry(body, apiUrl, MAX_ATTEMPTS_OVERLOADED, "primary");
         } catch (GeminiOverloadedException primaryFailure) {
-            log.warn("Primary model overloaded after exhausting retries, switching to fallback model");
+            log.warn("Primary model overloaded/unreachable after exhausting retries, switching to fallback model");
             try {
                 return callGeminiWithRetry(body, fallbackApiUrl, MAX_ATTEMPTS_FALLBACK, "fallback");
             } catch (GeminiCallException fallbackFailure) {
@@ -126,12 +126,20 @@ public class GeminiClient {
                 attempt++;
             } catch (RestClientException e) {
                 if (attempt >= maxAttempts) {
-                    log.error("Final failure calling Gemini (model {}, network) after {} attempt(s)",
-                            label, attempt);
-                    throw new GeminiCallException("Gemini call failed: " + e.getMessage(), e);
+                    log.error("Final failure calling Gemini (model {}, network) after {} attempt(s): {}",
+                            label, attempt, e.getMessage());
+                    // Un timeout/erreur réseau est traité comme "overloaded" pour que
+                    // generateWithFallback() puisse basculer sur le modèle fallback —
+                    // avant ce fix, une GeminiCallException brute court-circuitait le fallback.
+                    throw new GeminiOverloadedException(
+                            "The Gemini model is temporarily unreachable (network timeout). "
+                                    + "Please try again in a minute.", e);
                 }
                 lastError = new GeminiCallException("Gemini call failed: " + e.getMessage(), e);
-                sleep(computeBackoff(attempt));
+                long backoffMs = computeBackoff(attempt);
+                log.warn("Gemini call failed (model {}, attempt {}/{}, network error: {}), retrying in {} ms",
+                        label, attempt, maxAttempts, e.getMessage(), backoffMs);
+                sleep(backoffMs);
                 attempt++;
             }
         }
