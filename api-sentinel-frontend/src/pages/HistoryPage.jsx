@@ -78,6 +78,18 @@ function ScoreEvolutionChart({ points }) {
 
     const gridLines = [0, 0.25, 0.5, 0.75, 1];
 
+    // Only show a handful of readable labels instead of one per point
+    const MAX_LABELS = 6;
+    const labelIndices = (() => {
+        const n = points.length;
+        if (n <= MAX_LABELS) return points.map((_, i) => i);
+        const idx = new Set();
+        for (let i = 0; i < MAX_LABELS; i++) {
+            idx.add(Math.round((i * (n - 1)) / (MAX_LABELS - 1)));
+        }
+        return [...idx].sort((a, b) => a - b);
+    })();
+
     return (
         <div>
             <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-36" preserveAspectRatio="none">
@@ -92,7 +104,6 @@ function ScoreEvolutionChart({ points }) {
                     </linearGradient>
                 </defs>
 
-                {/* Light blue grid */}
                 {gridLines.map((f, i) => {
                     const y = padding + f * (height - padding * 2);
                     return (
@@ -109,12 +120,13 @@ function ScoreEvolutionChart({ points }) {
                         />
                     );
                 })}
-                {coords.map((c, i) => (
+                {/* Subtle vertical guides only under the labels we actually show */}
+                {labelIndices.map((i) => (
                     <line
                         key={`v-${i}`}
-                        x1={c.x}
+                        x1={coords[i].x}
                         y1={padding}
-                        x2={c.x}
+                        x2={coords[i].x}
                         y2={height - padding}
                         stroke="#dbeafe"
                         strokeOpacity="0.7"
@@ -122,11 +134,9 @@ function ScoreEvolutionChart({ points }) {
                     />
                 ))}
 
-                {/* Area + line */}
                 <path d={areaPath} fill="url(#scoreAreaFill)" stroke="none" />
                 <path d={linePath} fill="none" stroke="url(#scoreLineStroke)" strokeWidth="2.5" strokeLinecap="round" />
 
-                {/* Points */}
                 {coords.map((c, i) => {
                     const isLast = i === coords.length - 1;
                     const isHovered = hovered === i;
@@ -148,16 +158,16 @@ function ScoreEvolutionChart({ points }) {
                             {isHovered && (
                                 <g>
                                     <rect
-                                        x={Math.min(Math.max(c.x - 26, padding), width - padding - 52)}
-                                        y={Math.max(c.y - 34, 0)}
-                                        width="52"
-                                        height="22"
+                                        x={Math.min(Math.max(c.x - 40, padding), width - padding - 80)}
+                                        y={Math.max(c.y - 40, 0)}
+                                        width="80"
+                                        height="30"
                                         rx="5"
                                         fill="#1e3a8a"
                                     />
                                     <text
-                                        x={Math.min(Math.max(c.x, padding + 26), width - padding - 26)}
-                                        y={Math.max(c.y - 19, 15)}
+                                        x={Math.min(Math.max(c.x, padding + 40), width - padding - 40)}
+                                        y={Math.max(c.y - 25, 15)}
                                         textAnchor="middle"
                                         fontSize="11"
                                         fontWeight="700"
@@ -165,16 +175,50 @@ function ScoreEvolutionChart({ points }) {
                                     >
                                         {c.score != null ? `${c.score}/100` : "—"}
                                     </text>
+                                    <text
+                                        x={Math.min(Math.max(c.x, padding + 40), width - padding - 40)}
+                                        y={Math.max(c.y - 13, 27)}
+                                        textAnchor="middle"
+                                        fontSize="8"
+                                        fontWeight="600"
+                                        fill="#bfdbfe"
+                                    >
+                                        {formatRelativeTime(c.scanDate)}
+                                    </text>
                                 </g>
                             )}
                         </g>
                     );
                 })}
             </svg>
-            <div className="flex justify-between mt-2 font-mono text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                {points.map((p, i) => (
-                    <span key={i}>{formatRelativeTime(p.scanDate)}</span>
-                ))}
+
+            {/* Readable timeline: only a few evenly-spaced ticks + labels */}
+            <div className="relative h-8 mt-1">
+                {labelIndices.map((i) => {
+                    const c = coords[i];
+                    const isFirst = i === 0;
+                    const isLast = i === points.length - 1;
+                    return (
+                        <div
+                            key={i}
+                            className={cn(
+                                "absolute top-0 flex flex-col items-center",
+                                isFirst ? "translate-x-0" : isLast ? "-translate-x-full" : "-translate-x-1/2"
+                            )}
+                            style={{ left: `${(c.x / width) * 100}%` }}
+                        >
+                            <span className={cn("w-px h-1.5 mb-1", isLast ? "bg-blue-500" : "bg-blue-200")} />
+                            <span
+                                className={cn(
+                                    "font-mono text-[10px] font-bold uppercase tracking-wider whitespace-nowrap",
+                                    isLast ? "text-blue-600" : "text-slate-400"
+                                )}
+                            >
+                                {formatRelativeTime(points[i].scanDate)}
+                            </span>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );
@@ -377,8 +421,9 @@ function HistoryPage() {
                             </div>
                             <nav className="flex items-center gap-4 mt-1 text-xs font-semibold">
                                 <button onClick={() => navigate("/dashboard")} className="text-slate-500 hover:text-blue-700 transition-colors">Dashboard</button>
-                                <span className="text-blue-700">History</span>
                                 <button onClick={() => navigate("/owasp")} className="text-slate-500 hover:text-blue-700 transition-colors">OWASP</button>
+                                <span className="text-blue-700">History</span>
+                                
                             </nav>
                         </div>
                     </div>

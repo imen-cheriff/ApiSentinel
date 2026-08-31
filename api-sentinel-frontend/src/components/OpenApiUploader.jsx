@@ -11,7 +11,7 @@ const STEPS = [
 function maxStepForPhase(ph) {
   if (ph === 0) return 0;
   if (ph === 1) return 2;
-  return STEPS.length - 1; 
+  return STEPS.length - 1;
 }
 
 const CHECKPOINT_TIMES_MS = [5000, 15000, 25000];
@@ -39,7 +39,6 @@ function OpenApiUploader({ onUploadSuccess }) {
   const [phase, setPhase] = useState(0);
   const [displayStep, setDisplayStep] = useState(0);
   const phaseRef = useRef(0);
-  const resultsRef = useRef({ project: null, auditResult: null });
 
   useEffect(() => {
     phaseRef.current = phase;
@@ -63,16 +62,6 @@ function OpenApiUploader({ onUploadSuccess }) {
     setDisplayStep(target);
   }, [isUploading, elapsedMs, phase]);
 
-  useEffect(() => {
-    if (phase !== 2 || displayStep !== STEPS.length - 1) return;
-    if (!resultsRef.current.auditResult) return;
-    const t = setTimeout(() => {
-      onUploadSuccess(resultsRef.current);
-      setIsUploading(false);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [phase, displayStep]);
-
   const handleDragOver = (e) => {
     e.preventDefault();
     setIsDragging(true);
@@ -95,8 +84,8 @@ function OpenApiUploader({ onUploadSuccess }) {
   };
 
   const processFile = async (file) => {
-    if (!file.name.endsWith(".json")) {
-      setError("Only .json files are accepted");
+    if (!/\.(json|ya?ml)$/i.test(file.name)) {
+      setError("Only .json, .yaml or .yml files are accepted");
       return;
     }
 
@@ -117,10 +106,10 @@ function OpenApiUploader({ onUploadSuccess }) {
       setPhase(1);
       const auditRes = await api.post(`/api/projects/${project.id}/audit`);
 
-      resultsRef.current = { project, auditResult: auditRes.data };
       setPhase(2);
       await new Promise((r) => setTimeout(r, 400));
 
+      setIsUploading(false);
       onUploadSuccess({ project, auditResult: auditRes.data });
     } catch (err) {
       const code = err.response?.data?.code;
@@ -147,15 +136,13 @@ function OpenApiUploader({ onUploadSuccess }) {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`relative rounded-2xl text-center overflow-hidden transition-all duration-200 ${
-        isUploading ? "p-10" : "p-14"
-      } ${
-        isUploading
+      className={`relative rounded-2xl text-center overflow-hidden transition-all duration-200 ${isUploading ? "p-10" : "p-14"
+        } ${isUploading
           ? "border border-blue-200 bg-blue-50/90 shadow-[0_0_0_1px_rgba(29,78,216,0.06)]"
           : isDragging
             ? "border border-blue-500 bg-blue-50 shadow-[0_0_0_1px_rgba(29,78,216,0.2),0_0_32px_rgba(29,78,216,0.12)]"
             : "border border-dashed border-blue-200 bg-white/80 hover:border-blue-400 hover:-translate-y-0.5 backdrop-blur-sm"
-      }`}
+        }`}
     >
       {/* HUD corner brackets */}
       <span className={cornerClasses("top-0 left-0 rounded-tl-md border-r-0 border-b-0", isDragging || isUploading)} />
@@ -234,13 +221,12 @@ function OpenApiUploader({ onUploadSuccess }) {
               return (
                 <li
                   key={step.label}
-                  className={`flex items-center gap-2.5 text-xs transition-colors duration-300 ${
-                    done
-                      ? "text-blue-700"
-                      : active
-                        ? "text-blue-600"
-                        : "text-blue-300"
-                  }`}
+                  className={`flex items-center gap-2.5 text-xs transition-colors duration-300 ${done
+                    ? "text-blue-700"
+                    : active
+                      ? "text-blue-600"
+                      : "text-blue-300"
+                    }`}
                 >
                   {done ? (
                     <svg
@@ -303,13 +289,13 @@ function OpenApiUploader({ onUploadSuccess }) {
           </svg>
 
           <p className="text-slate-700 text-sm font-medium mb-1">
-            Drag and drop your OpenAPI / Swagger file (.json) here
+            Drag and drop your OpenAPI / Swagger file (.json, .yaml, .yml) here
           </p>
           <p className="text-slate-600 text-xs mb-3">or</p>
 
           <input
             type="file"
-            accept=".json"
+            accept=".json,.yaml,.yml"
             onChange={handleFileInput}
             className="hidden"
             id="file-input"
@@ -331,9 +317,8 @@ function OpenApiUploader({ onUploadSuccess }) {
 }
 
 function cornerClasses(position, active) {
-  return `absolute w-3.5 h-3.5 border-[1.5px] transition-colors duration-200 ${position} ${
-    active ? "border-blue-500" : "border-blue-300"
-  }`;
+  return `absolute w-3.5 h-3.5 border-[1.5px] transition-colors duration-200 ${position} ${active ? "border-blue-500" : "border-blue-300"
+    }`;
 }
 
 export default OpenApiUploader;

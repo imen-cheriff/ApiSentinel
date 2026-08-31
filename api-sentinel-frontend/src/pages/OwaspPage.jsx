@@ -262,10 +262,10 @@ function OwaspPage() {
                 <button onClick={() => navigate(`/dashboard/${projectId}`, { state: { project } })} className="text-slate-500 hover:text-blue-700 transition-colors">
                   Dashboard
                 </button>
+                <span className="text-blue-700">OWASP</span>
                 <button onClick={() => navigate("/history")} className="text-slate-500 hover:text-blue-700 transition-colors">
                   History
                 </button>
-                <span className="text-blue-700">OWASP</span>
               </nav>
             </div>
           </div>

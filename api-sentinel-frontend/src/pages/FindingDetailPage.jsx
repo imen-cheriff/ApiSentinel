@@ -3,7 +3,7 @@ import { useNavigate, useParams, useLocation } from "react-router-dom";
 import api from "../services/api";
 import { cn } from "../lib/utils";
 import { GridPattern } from "../components/GridPattern";
-import { ArrowLeft, ArrowRight, EyeOff, FileCode2, Wrench, Terminal, Copy, Shield } from "lucide-react";
+import { ArrowLeft, ArrowRight, FileCode2, Wrench, Terminal, Copy, Shield } from "lucide-react";
 
 const SEVERITY_COLORS = { CRITICAL: "#dc2626", HIGH: "#ea580c", MEDIUM: "#ca8a04", LOW: "#16a34a" };
 const RISK_LEVEL_SCORE = { CRITICAL: 95, HIGH: 75, MEDIUM: 50, LOW: 20 };
@@ -29,7 +29,6 @@ function FindingDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [project, setProject] = useState(location.state?.project ?? null);
-  const [falsePositive, setFalsePositive] = useState(false);
 
   useEffect(() => {
     if (project) return;
