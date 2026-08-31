@@ -5,6 +5,7 @@ import autoTable from "jspdf-autotable";
 import api from "../services/api";
 import { cn } from "../lib/utils";
 import { GridPattern } from "../components/GridPattern";
+import { useTabNotification } from "../hooks/useTabNotification";
 import {
   Shield,
   ShieldAlert,
@@ -15,7 +16,6 @@ import {
   Download,
   RotateCw,
   AlertTriangle,
-  Layers,
   FileCode2,
   Lock,
   Unlink,
@@ -638,6 +638,7 @@ function DashboardPage() {
   const [search, setSearch] = useState("");
   const [severityFilter, setSeverityFilter] = useState(null);
   const [methodFilter, setMethodFilter] = useState(null);
+  const { notify, requestPermissionIfNeeded } = useTabNotification();
 
   const loadProject = () => {
     setLoadingProject(true);
@@ -655,11 +656,18 @@ function DashboardPage() {
   }, [projectId]);
 
   const runAudit = () => {
+    requestPermissionIfNeeded();
     setAuditLoading(true);
     setAuditError(null);
     api
       .post(`/api/projects/${projectId}/audit`)
       .then(() => loadProject())
+      .then(() => {
+        notify({
+          title: "Audit terminé ✅",
+          body: "Le rapport de sécurité est prêt.",
+        });
+      })
       .catch((err) => {
         setAuditError(err.response?.data?.message || "AI analysis failed. Please try again shortly.");
       })
@@ -841,10 +849,10 @@ function DashboardPage() {
                     ? audit.riskLevel === "CRITICAL"
                       ? SEVERITY_COLORS.CRITICAL
                       : audit.riskLevel === "HIGH"
-                      ? SEVERITY_COLORS.HIGH
-                      : audit.riskLevel === "MEDIUM"
-                      ? SEVERITY_COLORS.MEDIUM
-                      : SEVERITY_COLORS.LOW
+                        ? SEVERITY_COLORS.HIGH
+                        : audit.riskLevel === "MEDIUM"
+                          ? SEVERITY_COLORS.MEDIUM
+                          : SEVERITY_COLORS.LOW
                     : "#94a3b8";
 
                   return (

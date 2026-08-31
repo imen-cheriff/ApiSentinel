@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import api from "../services/api";
+import { useTabNotification } from "../hooks/useTabNotification";
 
 const STEPS = [
   { label: "Reading OpenAPI file…", phase: 0 },
@@ -39,6 +40,7 @@ function OpenApiUploader({ onUploadSuccess }) {
   const [phase, setPhase] = useState(0);
   const [displayStep, setDisplayStep] = useState(0);
   const phaseRef = useRef(0);
+  const { notify, requestPermissionIfNeeded } = useTabNotification();
 
   useEffect(() => {
     phaseRef.current = phase;
@@ -89,6 +91,8 @@ function OpenApiUploader({ onUploadSuccess }) {
       return;
     }
 
+    requestPermissionIfNeeded();
+
     setError(null);
     setFileName(file.name);
     setIsUploading(true);
@@ -108,6 +112,11 @@ function OpenApiUploader({ onUploadSuccess }) {
 
       setPhase(2);
       await new Promise((r) => setTimeout(r, 400));
+
+      notify({
+        title: "Audit terminé ✅",
+        body: `${project.projectName} — analyse OWASP prête à consulter.`,
+      });
 
       setIsUploading(false);
       onUploadSuccess({ project, auditResult: auditRes.data });
