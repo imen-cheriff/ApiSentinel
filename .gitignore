@@ -6,6 +6,7 @@ target/
 *.class
 *.jar
 *.war
+api-sentinel-backend/src/main/resources/application.properties
 
 # ===== Frontend (React / Node) =====
 node_modules/
