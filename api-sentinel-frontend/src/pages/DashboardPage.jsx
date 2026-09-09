@@ -611,6 +611,7 @@ function DashboardHeader({ project, scanComplete, onExport, onNewAnalysis }) {
           </div>
           <nav className="flex items-center gap-4 mt-1 text-xs font-semibold">
             <span className="text-blue-500">Dashboard</span>
+            <button onClick={() => navigate(`/fixlab/${project.id}`, { state: { project } })} className="text-slate-500 hover:text-blue-500 transition-colors">Fix Lab</button>
             <button onClick={() => navigate(`/owasp/${project.id}`, { state: { project } })} className="text-slate-500 hover:text-blue-500 transition-colors">OWASP</button>
             <button onClick={() => navigate("/history")} className="text-slate-500 hover:text-blue-500 transition-colors">
               History

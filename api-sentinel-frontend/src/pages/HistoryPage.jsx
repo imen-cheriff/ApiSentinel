@@ -421,6 +421,7 @@ function HistoryPage() {
                             </div>
                             <nav className="flex items-center gap-4 mt-1 text-xs font-semibold">
                                 <button onClick={() => navigate("/dashboard")} className="text-slate-500 hover:text-blue-500 transition-colors">Dashboard</button>
+                                <button onClick={() => navigate("/fixlab")} className="text-slate-500 hover:text-blue-500 transition-colors">Fix Lab</button>
                                 <button onClick={() => navigate("/owasp")} className="text-slate-500 hover:text-blue-500 transition-colors">OWASP</button>
                                 <span className="text-blue-500">History</span>
                             </nav>
@@ -516,13 +517,13 @@ function HistoryPage() {
                                                 >
                                                     <RotateCw className="w-3.5 h-3.5" />
                                                 </button>
-                                                <button
+                                                {/* <button
                                                     onClick={() => navigate("/compare", { state: { headId: scan.id } })}
                                                     className="p-1.5 rounded-md border border-blue-200 text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
                                                     title="Compare"
                                                 >
                                                     <ArrowLeftRight className="w-3.5 h-3.5" />
-                                                </button>
+                                                </button> */}
                                                 <button
                                                     onClick={() => handleDelete(scan.id)}
                                                     className="p-1.5 rounded-md border border-blue-200 text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"

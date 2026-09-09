@@ -1,0 +1,15 @@
+package com.apisentinel.backend.ai.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class AutoFixResponse {
+    private String patchedSpecification;
+    private List<String> verificationSteps;
+}

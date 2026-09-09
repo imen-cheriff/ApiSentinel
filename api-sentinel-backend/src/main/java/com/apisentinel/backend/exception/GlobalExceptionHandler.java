@@ -54,4 +54,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(new ErrorResponse("AI_OVERLOADED", ex.getMessage()));
     }
+
+    @ExceptionHandler(AiResponseParseException.class)
+    public ResponseEntity<ErrorResponse> handleAiResponseParseFailure(AiResponseParseException ex) {
+        log.error("AI response could not be parsed: {}", ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(new ErrorResponse("AI_RESPONSE_INVALID",
+                        "The AI returned an unexpected response. Please try again."));
+    }
 }
