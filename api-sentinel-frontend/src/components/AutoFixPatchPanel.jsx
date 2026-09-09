@@ -4,8 +4,6 @@ import { generateAutoFixPatch } from "../services/api";
 import { getErrorMessage } from "../services/apiErrors";
 import { cn } from "../lib/utils";
 
-// Simple LCS-based line diff. Specs are short (tens of lines), so an
-// O(m*n) table is plenty fast and keeps this dependency-free.
 function diffLines(oldStr, newStr) {
   const oldLines = (oldStr ?? "").split("\n");
   const newLines = (newStr ?? "").split("\n");
