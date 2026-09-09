@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Swords, Wrench, MessagesSquare, GitCompare } from "lucide-react";
+import { Swords, Wrench, MessagesSquare, ChevronLeft, ChevronRight } from "lucide-react";
 import AskTheSpecPanel from "../components/AskTheSpecPanel";
 import AttackSimulatorPanel from "../components/AttackSimulatorPanel";
 import AutoFixPatchPanel from "../components/AutoFixPatchPanel";
@@ -13,6 +13,9 @@ const TOOLS = [
   { id: "patch", label: "Auto-Fix Patch", icon: Wrench },
   { id: "spec", label: "Ask the Spec", icon: MessagesSquare },
 ];
+
+const RISK_ORDER = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+const PAGE_SIZE = 4;
 
 const RISK_STYLES = {
   CRITICAL: "bg-red-100 text-red-700",
@@ -27,10 +30,6 @@ function owaspCodeOf(category) {
   return match ? match[1] : category;
 }
 
-// Audit results only persist vulnerability/OWASP tag/risk level — the original
-// OpenAPI operation isn't stored server-side. Rebuild an equivalent snippet from
-// the endpoint data we already have, so the Vulnerable Specification panel has
-// something real to show instead of the "no snippet stored" notice.
 function buildSpecSnippet(endpoint) {
   const params = endpoint.parameters || [];
   return `"${endpoint.path}": {
@@ -107,6 +106,7 @@ export default function FixLabPage() {
   const [selectedFinding, setSelectedFinding] = useState(null);
   const [findingsLoading, setFindingsLoading] = useState(true);
   const [findingsError, setFindingsError] = useState(null);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,9 +118,12 @@ export default function FixLabPage() {
         const res = await api.get(`/api/projects/${projectId}`);
         if (cancelled) return;
         setProjectName(res.data?.projectName || "");
-        const list = findingsFromProject(res.data);
+        const list = findingsFromProject(res.data).sort(
+          (a, b) => (RISK_ORDER[b.riskLevel] || 0) - (RISK_ORDER[a.riskLevel] || 0)
+        );
         setFindings(list);
         setSelectedFinding(list[0] || null);
+        setPage(1);
       } catch (err) {
         if (!cancelled) {
           setFindingsError(
@@ -137,6 +140,10 @@ export default function FixLabPage() {
       cancelled = true;
     };
   }, [projectId]);
+
+  const totalPages = Math.max(1, Math.ceil(findings.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedFindings = findings.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <div className="relative min-h-screen w-full bg-[#eef2f8] text-slate-900 font-mono px-6 py-8 overflow-x-hidden">
@@ -230,7 +237,7 @@ export default function FixLabPage() {
                 )}
 
                 <div className="space-y-3">
-                  {findings.map((finding) => (
+                  {pagedFindings.map((finding) => (
                     <FindingCard
                       key={finding.id}
                       finding={finding}
@@ -239,6 +246,48 @@ export default function FixLabPage() {
                     />
                   ))}
                 </div>
+                {findings.length > 0 && (
+                  <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
+                    <span className="text-[10px] font-semibold text-gray-400">
+                      {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, findings.length)} of {findings.length}
+                    </span>
+                    {totalPages > 1 && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          disabled={currentPage <= 1}
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-gray-200 text-gray-600 disabled:opacity-40 hover:bg-blue-50"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                        {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                          <button
+                            type="button"
+                            key={n}
+                            onClick={() => setPage(n)}
+                            className={cn(
+                              "h-6 min-w-6 px-1.5 rounded-md border text-[10px] font-bold",
+                              n === currentPage
+                                ? "border-blue-500 bg-blue-600 text-white"
+                                : "border-gray-200 bg-white text-gray-600 hover:bg-blue-50"
+                            )}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          disabled={currentPage >= totalPages}
+                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-gray-200 text-gray-600 disabled:opacity-40 hover:bg-blue-50"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {activeTool === "attack" && (

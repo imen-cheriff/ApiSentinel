@@ -6,8 +6,6 @@ import api from "../services/api";
 import { cn } from "../lib/utils";
 import { GridPattern } from "../components/GridPattern";
 import { useTabNotification } from "../hooks/useTabNotification";
-import { looksNonEnglish, translateToEnglish } from "../lib/translateText";
-import { TranslatedText } from "../components/TranslatedText";
 import {
   Shield,
   ShieldAlert,
@@ -15,6 +13,7 @@ import {
   Search,
   CheckCircle2,
   ChevronRight,
+  ChevronLeft,
   Download,
   RotateCw,
   AlertTriangle,
@@ -30,7 +29,6 @@ import {
   Settings,
   Bug,
   Loader2,
-  Languages,
 } from "lucide-react";
 
 const SEVERITY_COLORS = {
@@ -364,13 +362,13 @@ function ScoreGauge({ score, size = 130 }) {
 
 
 /* ---------------- Endpoint Card ---------------- */
-function EndpointCard({ endpoint, onClick, showOriginal }) {
+function EndpointCard({ endpoint, onClick }) {
   const audit = worstAuditOf(endpoint);
   const methodColor = METHOD_COLORS[endpoint.method] || "#64748b";
   const severityColor = audit ? SEVERITY_COLORS[audit.riskLevel] : "#16a34a";
   const riskScore = riskScoreOf(audit);
   const findingsCount = endpoint.auditResults?.length || 0;
-  const findingCopy = audit ? audit.vulnerability : endpoint.summary || "No direct vulnerability detected.";
+  const findingTitle = audit ? audit.vulnerability : "No direct vulnerability detected.";
 
   return (
     <div
@@ -407,7 +405,7 @@ function EndpointCard({ endpoint, onClick, showOriginal }) {
           {endpoint.path}
         </h4>
         <p className="text-[11px] text-slate-500 font-mono line-clamp-2">
-          <TranslatedText text={findingCopy} showOriginal={showOriginal} showToggle={false} />
+          {findingTitle}
         </p>
       </div>
 
@@ -709,7 +707,7 @@ function DashboardPage() {
   const [search, setSearch] = useState("");
   const [severityFilter, setSeverityFilter] = useState(null);
   const [methodFilter, setMethodFilter] = useState(null);
-  const [showOriginal, setShowOriginal] = useState(false);
+  const [page, setPage] = useState(1);
   const { notify, requestPermissionIfNeeded } = useTabNotification();
 
   const loadProject = () => {
@@ -763,21 +761,8 @@ function DashboardPage() {
   }, [project]);
 
   useEffect(() => {
-    setShowOriginal(false);
-  }, [projectId]);
-
-  useEffect(() => {
-    if (!project?.endpoints) return;
-    const texts = new Set();
-    for (const ep of project.endpoints) {
-      const audit = worstAuditOf(ep);
-      const copy = audit?.vulnerability || ep.summary;
-      if (looksNonEnglish(copy)) texts.add(copy);
-    }
-    texts.forEach((text) => {
-      translateToEnglish(text);
-    });
-  }, [project]);
+    setPage(1);
+  }, [search, severityFilter, methodFilter, projectId]);
 
   if (loadingProject && !project) {
     return (
@@ -811,18 +796,21 @@ function DashboardPage() {
 
   const endpoints = project.endpoints || [];
   const allAudits = endpoints.flatMap((ep) => ep.auditResults || []);
-  const hasForeignCopy = endpoints.some((ep) => {
-    const audit = worstAuditOf(ep);
-    return looksNonEnglish(audit?.vulnerability || ep.summary);
-  });
 
-  const filteredEndpoints = endpoints.filter((ep) => {
-    const audit = worstAuditOf(ep);
-    if (search && !ep.path.toLowerCase().includes(search.toLowerCase())) return false;
-    if (severityFilter && audit?.riskLevel !== severityFilter) return false;
-    if (methodFilter && ep.method !== methodFilter) return false;
-    return true;
-  });
+  const filteredEndpoints = endpoints
+    .filter((ep) => {
+      const audit = worstAuditOf(ep);
+      if (search && !ep.path.toLowerCase().includes(search.toLowerCase())) return false;
+      if (severityFilter && audit?.riskLevel !== severityFilter) return false;
+      if (methodFilter && ep.method !== methodFilter) return false;
+      return true;
+    })
+    .sort((a, b) => riskScoreOf(worstAuditOf(b)) - riskScoreOf(worstAuditOf(a)));
+
+  const PAGE_SIZE = 6;
+  const totalPages = Math.max(1, Math.ceil(filteredEndpoints.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedEndpoints = filteredEndpoints.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const topRiskyEndpoints = endpoints
     .map((ep) => ({ ...ep, audit: worstAuditOf(ep) }))
@@ -1029,16 +1017,6 @@ function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap w-full md:w-auto justify-end">
-            {hasForeignCopy && (
-              <button
-                type="button"
-                onClick={() => setShowOriginal((v) => !v)}
-                className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded border border-blue-200 bg-white text-blue-600 hover:bg-blue-50 transition-colors mr-1"
-              >
-                <Languages className="w-3 h-3" />
-                {showOriginal ? "Show English" : "Show original"}
-              </button>
-            )}
             <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Filters:</span>
             {Object.keys(SEVERITY_COLORS).map((level) => {
               const isActive = severityFilter === level;
@@ -1083,13 +1061,12 @@ function DashboardPage() {
 
         {/* Endpoint Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredEndpoints.map((endpoint) => {
+          {pagedEndpoints.map((endpoint) => {
             const audit = worstAuditOf(endpoint);
             return (
               <EndpointCard
                 key={endpoint.id}
                 endpoint={endpoint}
-                showOriginal={showOriginal}
                 onClick={() => {
                   if (!audit) return;
                   navigate(`/dashboard/${project.id}/findings/${endpoint.id}/${audit.id}`, { state: { project } });
@@ -1103,6 +1080,50 @@ function DashboardPage() {
           <div className="text-center py-12 border border-dashed border-blue-200 rounded-xl bg-white/40">
             <FileCode2 className="w-8 h-8 text-slate-400 mx-auto mb-2" />
             <p className="text-sm font-semibold text-slate-600">No endpoint matches the criteria</p>
+          </div>
+        )}
+
+        {filteredEndpoints.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 rounded-xl border border-blue-200/80 bg-white/80 px-4 py-2.5">
+            <span className="text-[10px] font-mono text-slate-400 font-bold">
+              Showing {(currentPage - 1) * PAGE_SIZE + 1}–
+              {Math.min(currentPage * PAGE_SIZE, filteredEndpoints.length)} of {filteredEndpoints.length} routes
+            </span>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-blue-200 bg-white text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-50"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                  <button
+                    type="button"
+                    key={n}
+                    onClick={() => setPage(n)}
+                    className={cn(
+                      "h-7 min-w-7 px-2 rounded-lg border text-[10px] font-bold font-mono",
+                      n === currentPage
+                        ? "border-blue-500 bg-blue-500 text-white"
+                        : "border-blue-200 bg-white text-slate-600 hover:bg-blue-50"
+                    )}
+                  >
+                    {n}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-blue-200 bg-white text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-50"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
