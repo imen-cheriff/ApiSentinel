@@ -4,12 +4,13 @@ import api from "../services/api";
 import { cn } from "../lib/utils";
 import { GridPattern } from "../components/GridPattern";
 import { TranslatedText } from "../components/TranslatedText";
+import { looksNonEnglish } from "../lib/translateText";
 import {
   ArrowLeft,
   ArrowRight,
-  User,
+  Eye,
   Key,
-  ShieldAlert,
+  Fingerprint,
   Database,
   Link2,
   Braces,
@@ -25,9 +26,9 @@ const SEVERITY_COLORS = { CRITICAL: "#dc2626", HIGH: "#ea580c", MEDIUM: "#ca8a04
 const RISK_LEVELS = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
 
 const LIFECYCLE_STAGES = [
-  { key: "caller", label: "Caller", icon: User },
+  { key: "caller", label: "Caller", icon: Eye },
   { key: "identity", label: "Identity", icon: Key },
-  { key: "authorization", label: "Authorization", icon: ShieldAlert },
+  { key: "authorization", label: "Authorization", icon: Fingerprint },
   { key: "dataLayer", label: "Data layer", icon: Database },
 ];
 
@@ -119,11 +120,16 @@ function FindingDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [project, setProject] = useState(location.state?.project ?? null);
+  const [showSpecOriginal, setShowSpecOriginal] = useState(false);
 
   useEffect(() => {
     if (project) return;
     api.get(`/api/projects/${projectId}`).then((res) => setProject(res.data));
   }, [projectId, project]);
+
+  useEffect(() => {
+    setShowSpecOriginal(false);
+  }, [endpointId, auditId]);
 
   const findings = useMemo(() => {
     if (!project?.endpoints) return [];
@@ -155,6 +161,8 @@ function FindingDetailPage() {
   const requiredParams = parameters.filter((p) => p.required);
   const optionalParams = parameters.filter((p) => !p.required);
   const declaredTypes = [...new Set(parameters.map((p) => p.dataType).filter(Boolean))];
+  const specDescription = endpoint.description || audit.description;
+  const specHasOriginal = looksNonEnglish(endpoint.summary) || looksNonEnglish(specDescription);
 
   const goToFinding = (index) => {
     const wrapped = ((index % findings.length) + findings.length) % findings.length;
@@ -249,7 +257,7 @@ function FindingDetailPage() {
               <p className="text-[13px] text-[#3b82f6] mt-1">{endpoint.path}</p>
               {endpoint.summary && (
                 <p className="text-[12px] text-slate-400 mt-1">
-                  <TranslatedText text={endpoint.summary} />
+                  <TranslatedText text={endpoint.summary} showOriginal={showSpecOriginal} showToggle={false} />
                 </p>
               )}
               <p className="mt-2.5 text-[12px] text-[#6b7280] leading-[1.5] max-w-[52rem]">
@@ -318,7 +326,7 @@ function FindingDetailPage() {
             Where a call to this route passes — and the exact stage the specification leaves unguarded.
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {LIFECYCLE_STAGES.map((stage, i) => {
               const breaksHere = stage.key === rule.breaksAt;
               const StageIcon = stage.icon;
@@ -326,17 +334,19 @@ function FindingDetailPage() {
                 <div
                   key={stage.key}
                   className={cn(
-                    "rounded-lg border p-3",
-                    breaksHere ? "border-red-200 bg-red-50" : "border-slate-200 bg-white"
+                    "rounded-2xl border p-3.5",
+                    breaksHere
+                      ? "border-red-200 bg-[#fef2f2]"
+                      : "border-slate-200/80 bg-[#f4f6f9]"
                   )}
                 >
                   <div
                     className={cn(
-                      "inline-flex items-center justify-center w-7 h-7 rounded-full mb-2",
-                      breaksHere ? "bg-red-100 text-red-600" : "bg-blue-50 text-blue-600"
+                      "inline-flex items-center justify-center w-8 h-8 rounded-lg mb-2.5",
+                      breaksHere ? "bg-red-100 text-red-500" : "bg-[#e8eef7] text-blue-500"
                     )}
                   >
-                    <StageIcon className="w-3.5 h-3.5" />
+                    <StageIcon className="w-4 h-4" strokeWidth={1.75} />
                   </div>
                   <p className={cn("text-[12px] font-bold", breaksHere ? "text-red-700" : "text-slate-900")}>
                     {i + 1} · {stage.label}
@@ -345,7 +355,7 @@ function FindingDetailPage() {
                     {stageDescription(stage.key, { endpoint, parameters, riskyControls })}
                   </p>
                   {breaksHere && (
-                    <span className="inline-block mt-2 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200">
+                    <span className="inline-block mt-2 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">
                       Breaks here
                     </span>
                   )}
@@ -367,7 +377,7 @@ function FindingDetailPage() {
               </Row>
               {endpoint.summary && (
                 <Row label="Summary">
-                  <TranslatedText text={endpoint.summary} />
+                  <TranslatedText text={endpoint.summary} showOriginal={showSpecOriginal} showToggle={false} />
                 </Row>
               )}
               <Row label="Required inputs">
@@ -389,12 +399,15 @@ function FindingDetailPage() {
               )}
             </dl>
 
-            {(endpoint.description || audit.description) && (
+            {specDescription && (
               <div className="mt-3 rounded-lg bg-[#f3f5f8] px-3 py-2.5">
                 <TranslatedText
-                  text={endpoint.description || audit.description}
+                  text={specDescription}
                   block
                   className="text-[11px] text-slate-500 leading-[1.45]"
+                  showOriginal={showSpecOriginal}
+                  onToggle={() => setShowSpecOriginal((v) => !v)}
+                  showToggle={specHasOriginal}
                 />
               </div>
             )}
