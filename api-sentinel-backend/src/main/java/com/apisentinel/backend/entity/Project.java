@@ -53,9 +53,7 @@ public class Project {
         if (this.endpoints != null && !this.endpoints.isEmpty()) {
             return this.endpoints;
         }
-        // Repli défensif : si les endpoints ne sont pas chargés sur l'entité
-        // mais que les résultats portent une référence vers leur endpoint,
-        // on reconstruit la liste des routes distinctes à partir de là.
+
         if (allResults != null && !allResults.isEmpty()) {
             return allResults.stream()
                     .map(AuditResult::getEndpoint)

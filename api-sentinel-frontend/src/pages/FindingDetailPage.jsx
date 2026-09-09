@@ -113,6 +113,25 @@ function owaspCodeOf(category) {
   return match ? match[1] : category;
 }
 
+const OWASP_NAMES = {
+  API1: "Broken Object Level Authorization",
+  API2: "Broken Authentication",
+  API3: "Broken Object Property Level Authorization",
+  API4: "Unrestricted Resource Consumption",
+  API5: "Broken Function Level Authorization",
+  API6: "Unrestricted Access to Sensitive Business Flows",
+  API7: "Server Side Request Forgery",
+  API8: "Security Misconfiguration",
+  API9: "Improper Inventory Management",
+  API10: "Unsafe Consumption of APIs",
+};
+
+function owaspNameOf(category) {
+  const key = Object.keys(OWASP_NAMES).find((k) => category?.toUpperCase().startsWith(k));
+  if (key) return OWASP_NAMES[key];
+  return category?.replace(/^[A-Za-z0-9]+:\d{4}\s*[-–—]?\s*/, "") || "API finding";
+}
+
 const CARD = "bg-white rounded-xl border border-[#e5e7eb]";
 
 function FindingDetailPage() {
@@ -161,8 +180,8 @@ function FindingDetailPage() {
   const requiredParams = parameters.filter((p) => p.required);
   const optionalParams = parameters.filter((p) => !p.required);
   const declaredTypes = [...new Set(parameters.map((p) => p.dataType).filter(Boolean))];
-  const specDescription = endpoint.description || audit.description;
-  const specHasOriginal = looksNonEnglish(endpoint.summary) || looksNonEnglish(specDescription);
+  const owaspName = owaspNameOf(audit.owaspCategory);
+  const specHasOriginal = looksNonEnglish(endpoint.summary) || looksNonEnglish(endpoint.description);
 
   const goToFinding = (index) => {
     const wrapped = ((index % findings.length) + findings.length) % findings.length;
@@ -252,7 +271,7 @@ function FindingDetailPage() {
               </div>
 
               <h1 className="text-[24px] leading-tight font-bold tracking-tight text-black">
-                <TranslatedText text={audit.vulnerability} />
+                {owaspName}
               </h1>
               <p className="text-[13px] text-[#3b82f6] mt-1">{endpoint.path}</p>
               {endpoint.summary && (
@@ -260,9 +279,11 @@ function FindingDetailPage() {
                   <TranslatedText text={endpoint.summary} showOriginal={showSpecOriginal} showToggle={false} />
                 </p>
               )}
-              <p className="mt-2.5 text-[12px] text-[#6b7280] leading-[1.5] max-w-[52rem]">
-                <TranslatedText text={audit.description} />
-              </p>
+              {audit.description && (
+                <p className="mt-2.5 text-[12px] text-[#6b7280] leading-[1.5] max-w-[52rem]">
+                  {audit.description}
+                </p>
+              )}
             </div>
 
             <div className="rounded-xl bg-[#f4f6f9] border border-slate-200/70 p-4">
@@ -274,9 +295,7 @@ function FindingDetailPage() {
                 {audit.riskLevel}
               </p>
               <p className="mt-1.5 text-[11px] text-slate-400 leading-[1.4]">
-                {owaspCodeOf(audit.owaspCategory)}
-                {audit.vulnerability ? " · " : ""}
-                {audit.vulnerability && <TranslatedText text={audit.vulnerability} />}
+                {[owaspCodeOf(audit.owaspCategory), owaspName].filter(Boolean).join(" · ")}
               </p>
 
               <div className="mt-4 space-y-2">
@@ -399,16 +418,27 @@ function FindingDetailPage() {
               )}
             </dl>
 
-            {specDescription && (
+            {(endpoint.description || specHasOriginal) && (
               <div className="mt-3 rounded-lg bg-[#f3f5f8] px-3 py-2.5">
-                <TranslatedText
-                  text={specDescription}
-                  block
-                  className="text-[11px] text-slate-500 leading-[1.45]"
-                  showOriginal={showSpecOriginal}
-                  onToggle={() => setShowSpecOriginal((v) => !v)}
-                  showToggle={specHasOriginal}
-                />
+                {endpoint.description && (
+                  <TranslatedText
+                    text={endpoint.description}
+                    block
+                    className="text-[11px] text-slate-500 leading-[1.45]"
+                    showOriginal={showSpecOriginal}
+                    onToggle={() => setShowSpecOriginal((v) => !v)}
+                    showToggle={specHasOriginal}
+                  />
+                )}
+                {!endpoint.description && specHasOriginal && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSpecOriginal((v) => !v)}
+                    className="text-[10px] text-blue-500 hover:text-blue-700 hover:underline"
+                  >
+                    {showSpecOriginal ? "Show English" : "Show original"}
+                  </button>
+                )}
               </div>
             )}
 
@@ -522,9 +552,7 @@ function FindingDetailPage() {
                       </span>
                       <div className="min-w-0">
                         <p className="text-[12px] font-semibold text-slate-900 leading-[1.4]">
-                          <TranslatedText text={scenario.title}>
-                            {(shown) => <HighlightPath text={shown} />}
-                          </TranslatedText>
+                          <HighlightPath text={scenario.title} />
                         </p>
                         {scenario.expectedStatusOnSuccess != null && (
                           <p className="text-[11px] text-slate-400 mt-0.5">
@@ -544,13 +572,9 @@ function FindingDetailPage() {
           <div className="flex items-center gap-1.5 text-[14px] font-bold text-slate-900">
             <Wrench className="w-4 h-4 text-teal-500" strokeWidth={2} /> Remediation
           </div>
-          <div className="mt-2 max-w-5xl">
-            <TranslatedText
-              text={audit.remediation || "No remediation guidance was returned for this finding."}
-              block
-              className="text-[13px] text-slate-800 leading-[1.5]"
-            />
-          </div>
+          <p className="mt-2 text-[13px] text-slate-800 leading-[1.5] max-w-5xl">
+            {audit.remediation || "No remediation guidance was returned for this finding."}
+          </p>
 
           <div className="mt-4 border-t border-slate-200" />
 

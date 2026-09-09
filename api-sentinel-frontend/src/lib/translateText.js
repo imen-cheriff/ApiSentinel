@@ -4,7 +4,7 @@ const inflight = new Map();
 const ACCENTS = /[àâäáãåéèêëíìîïóòôöõúùûüçñßœæ¿¡]/i;
 const NON_LATIN = /[\u0400-\u04FF\u0600-\u06FF\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF]/;
 const FOREIGN_WORDS =
-  /\b(le|la|les|des|une|est|dans|pour|avec|sans|cette|cet|aux|du|sur|par|pas|que|qui|sont|être|retourne|historique|appareil|contrôle|controle|appartenance|recherche|télémétrie|telemetrie|entrainements|entraînements|utilisateurs|utilisateur|bâtiment|batiment|export de|d'un|d'une|l'historique|documenté|documente|appartenance|de la|un appareil|und|der|die|das|eine|nicht|für|el|los|las|una|para|con|por|que)\b/i;
+  /\b(le|la|les|des|une|est|dans|pour|avec|sans|cette|cet|aux|du|sur|par|pas|que|qui|sont|être|de|du|des|absence|limite|maximale|défaut|defaut|exposition|excessive|propriétés|proprietes|propriété|objet|autorisation|pagination|profil|client|contrôle|controle|appartenance|recherche|télémétrie|telemetrie|entrainements|entraînements|utilisateurs|utilisateur|bâtiment|batiment|export de|d'un|d'une|l'historique|documenté|documente|retourne|historique|appareil|appartenance|de la|un appareil|und|der|die|das|eine|nicht|für|el|los|las|una|para|con|por)\b/i;
 
 export function looksNonEnglish(text) {
   if (!text || typeof text !== "string") return false;

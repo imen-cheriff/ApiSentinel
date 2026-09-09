@@ -6,6 +6,8 @@ import api from "../services/api";
 import { cn } from "../lib/utils";
 import { GridPattern } from "../components/GridPattern";
 import { useTabNotification } from "../hooks/useTabNotification";
+import { looksNonEnglish, translateToEnglish } from "../lib/translateText";
+import { TranslatedText } from "../components/TranslatedText";
 import {
   Shield,
   ShieldAlert,
@@ -28,6 +30,7 @@ import {
   Settings,
   Bug,
   Loader2,
+  Languages,
 } from "lucide-react";
 
 const SEVERITY_COLORS = {
@@ -361,12 +364,13 @@ function ScoreGauge({ score, size = 130 }) {
 
 
 /* ---------------- Endpoint Card ---------------- */
-function EndpointCard({ endpoint, onClick }) {
+function EndpointCard({ endpoint, onClick, showOriginal }) {
   const audit = worstAuditOf(endpoint);
   const methodColor = METHOD_COLORS[endpoint.method] || "#64748b";
   const severityColor = audit ? SEVERITY_COLORS[audit.riskLevel] : "#16a34a";
   const riskScore = riskScoreOf(audit);
   const findingsCount = endpoint.auditResults?.length || 0;
+  const findingCopy = audit ? audit.vulnerability : endpoint.summary || "No direct vulnerability detected.";
 
   return (
     <div
@@ -403,7 +407,7 @@ function EndpointCard({ endpoint, onClick }) {
           {endpoint.path}
         </h4>
         <p className="text-[11px] text-slate-500 font-mono line-clamp-2">
-          {audit ? audit.vulnerability : endpoint.summary || "No direct vulnerability detected."}
+          <TranslatedText text={findingCopy} showOriginal={showOriginal} showToggle={false} />
         </p>
       </div>
 
@@ -705,6 +709,7 @@ function DashboardPage() {
   const [search, setSearch] = useState("");
   const [severityFilter, setSeverityFilter] = useState(null);
   const [methodFilter, setMethodFilter] = useState(null);
+  const [showOriginal, setShowOriginal] = useState(false);
   const { notify, requestPermissionIfNeeded } = useTabNotification();
 
   const loadProject = () => {
@@ -757,6 +762,23 @@ function DashboardPage() {
     }
   }, [project]);
 
+  useEffect(() => {
+    setShowOriginal(false);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!project?.endpoints) return;
+    const texts = new Set();
+    for (const ep of project.endpoints) {
+      const audit = worstAuditOf(ep);
+      const copy = audit?.vulnerability || ep.summary;
+      if (looksNonEnglish(copy)) texts.add(copy);
+    }
+    texts.forEach((text) => {
+      translateToEnglish(text);
+    });
+  }, [project]);
+
   if (loadingProject && !project) {
     return (
       <div className="min-h-screen bg-[#eef2f8] flex flex-col items-center justify-center font-mono text-slate-500 gap-3">
@@ -789,6 +811,10 @@ function DashboardPage() {
 
   const endpoints = project.endpoints || [];
   const allAudits = endpoints.flatMap((ep) => ep.auditResults || []);
+  const hasForeignCopy = endpoints.some((ep) => {
+    const audit = worstAuditOf(ep);
+    return looksNonEnglish(audit?.vulnerability || ep.summary);
+  });
 
   const filteredEndpoints = endpoints.filter((ep) => {
     const audit = worstAuditOf(ep);
@@ -1003,6 +1029,16 @@ function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap w-full md:w-auto justify-end">
+            {hasForeignCopy && (
+              <button
+                type="button"
+                onClick={() => setShowOriginal((v) => !v)}
+                className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded border border-blue-200 bg-white text-blue-600 hover:bg-blue-50 transition-colors mr-1"
+              >
+                <Languages className="w-3 h-3" />
+                {showOriginal ? "Show English" : "Show original"}
+              </button>
+            )}
             <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Filters:</span>
             {Object.keys(SEVERITY_COLORS).map((level) => {
               const isActive = severityFilter === level;
@@ -1053,6 +1089,7 @@ function DashboardPage() {
               <EndpointCard
                 key={endpoint.id}
                 endpoint={endpoint}
+                showOriginal={showOriginal}
                 onClick={() => {
                   if (!audit) return;
                   navigate(`/dashboard/${project.id}/findings/${endpoint.id}/${audit.id}`, { state: { project } });
