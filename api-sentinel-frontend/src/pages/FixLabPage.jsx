@@ -27,6 +27,22 @@ function owaspCodeOf(category) {
   return match ? match[1] : category;
 }
 
+// Audit results only persist vulnerability/OWASP tag/risk level — the original
+// OpenAPI operation isn't stored server-side. Rebuild an equivalent snippet from
+// the endpoint data we already have, so the Vulnerable Specification panel has
+// something real to show instead of the "no snippet stored" notice.
+function buildSpecSnippet(endpoint) {
+  const params = endpoint.parameters || [];
+  return `"${endpoint.path}": {
+  "${endpoint.method.toLowerCase()}": {
+    "summary": "${endpoint.summary || ""}",
+    "parameters": [${params
+      .map((p) => `\n      { "name": "${p.name}", "in": "${p.inType}" }`)
+      .join(",")}${params.length ? "\n    " : ""}]
+  }
+}`;
+}
+
 function findingsFromProject(project) {
   const endpoints = project?.endpoints || [];
   return endpoints.flatMap((ep) =>
@@ -37,7 +53,7 @@ function findingsFromProject(project) {
       vulnerability: audit.vulnerability,
       owaspTag: owaspCodeOf(audit.owaspCategory),
       riskLevel: audit.riskLevel,
-      vulnerableSpecification: audit.vulnerableSpecification,
+      vulnerableSpecification: audit.vulnerableSpecification || buildSpecSnippet(ep),
     }))
   );
 }

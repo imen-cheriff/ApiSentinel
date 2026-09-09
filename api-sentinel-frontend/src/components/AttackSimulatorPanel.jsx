@@ -3,6 +3,96 @@ import { Swords, ArrowRight, Bookmark, RotateCcw, Copy, Check } from "lucide-rea
 import { simulateAttack } from "../services/api";
 import { getErrorMessage } from "../services/apiErrors";
 
+// Light, dependency-free JSON token coloring for a single line — same scheme
+// as AutoFixPatchPanel's JsonLine/JsonValue.
+function JsonLine({ text }) {
+  const keyMatch = text.match(/^(\s*)("(?:\\.|[^"\\])*")(\s*:\s*)(.*)$/);
+  if (keyMatch) {
+    const [, indent, key, colon, rest] = keyMatch;
+    return (
+      <>
+        {indent}
+        <span className="text-sky-700">{key}</span>
+        <span className="text-gray-400">{colon}</span>
+        <JsonValue text={rest} />
+      </>
+    );
+  }
+  return <JsonValue text={text} />;
+}
+
+function JsonValue({ text }) {
+  const trailingComma = text.endsWith(",");
+  const core = trailingComma ? text.slice(0, -1) : text;
+  const trimmed = core.trim();
+  let cls = "";
+  if (/^".*"$/.test(trimmed)) cls = "text-emerald-700";
+  else if (/^(true|false|null)$/.test(trimmed)) cls = "text-purple-700";
+  else if (/^-?\d+(\.\d+)?$/.test(trimmed)) cls = "text-amber-700";
+  return (
+    <>
+      <span className={cls}>{core}</span>
+      {trailingComma && <span className="text-gray-400">,</span>}
+    </>
+  );
+}
+
+// Renders pre-formatted JSON with one colored <span> per line.
+function JsonBlock({ text }) {
+  return text.split("\n").map((line, i) => (
+    <span key={i} className="block">
+      {line.length > 0 ? <JsonLine text={line} /> : "\u00A0"}
+    </span>
+  ));
+}
+
+// Token coloring for a curl command line: the "curl" keyword, flags
+// (-X, -H, --data, ...), the HTTP method, and quoted strings.
+function CurlLine({ text }) {
+  const tokens = text.match(/"(?:\\.|[^"\\])*"|\S+|\s+/g) || [text];
+  return tokens.map((tok, i) => {
+    if (/^\s+$/.test(tok)) return tok;
+    if (/^".*"$/.test(tok)) {
+      return (
+        <span key={i} className="text-emerald-700">
+          {tok}
+        </span>
+      );
+    }
+    if (tok === "curl") {
+      return (
+        <span key={i} className="text-sky-700 font-semibold">
+          {tok}
+        </span>
+      );
+    }
+    if (/^--?[A-Za-z-]+$/.test(tok)) {
+      return (
+        <span key={i} className="text-purple-700">
+          {tok}
+        </span>
+      );
+    }
+    if (/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)$/.test(tok)) {
+      return (
+        <span key={i} className="text-amber-700">
+          {tok}
+        </span>
+      );
+    }
+    return tok;
+  });
+}
+
+// Renders a (possibly multi-line) curl command with one colored line per row.
+function CurlBlock({ text }) {
+  return text.split("\n").map((line, i) => (
+    <span key={i} className="block">
+      {line.length > 0 ? <CurlLine text={line} /> : "\u00A0"}
+    </span>
+  ));
+}
+
 export default function AttackSimulatorPanel({ projectId, finding }) {
   const storageKey = `attack-simulator:${projectId ?? "default"}:${finding?.id ?? "default"}`;
 
@@ -192,7 +282,7 @@ export default function AttackSimulatorPanel({ projectId, finding }) {
               ATTACKER REQUEST
             </h3>
             <pre className="bg-sky-50/70 border border-sky-100 text-slate-700 text-xs rounded-lg p-4 whitespace-pre-wrap break-all font-mono">
-              {formatJson(result.attackerRequest)}
+              <CurlBlock text={formatJson(result.attackerRequest)} />
             </pre>
             <button
               onClick={copyRequest}
@@ -215,7 +305,7 @@ export default function AttackSimulatorPanel({ projectId, finding }) {
               WHAT COMES BACK
             </h3>
             <pre className="bg-sky-50/70 border border-sky-100 text-slate-700 text-xs rounded-lg p-4 whitespace-pre-wrap break-all font-mono">
-              {formatJson(result.simulatedResponse)}
+              <JsonBlock text={formatJson(result.simulatedResponse)} />
             </pre>
           </section>
 
