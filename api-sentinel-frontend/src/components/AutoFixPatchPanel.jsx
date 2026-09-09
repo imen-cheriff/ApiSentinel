@@ -315,21 +315,6 @@ export default function AutoFixPatchPanel({ projectId, finding }) {
       {result && (
         <>
           <div className="space-y-4 min-w-0">
-            <section className="min-w-0">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <h3 className="text-xs font-semibold text-gray-400 tracking-wide">
-                  VULNERABLE SPECIFICATION
-                </h3>
-                {hasVulnerable && removedCount > 0 && (
-                  <span className="text-xs font-mono text-red-500">−{removedCount}</span>
-                )}
-              </div>
-              {hasVulnerable ? (
-                <SpecBlock rows={vulnerableRows} border="gray" />
-              ) : (
-                <EmptySpecNotice finding={finding} />
-              )}
-            </section>
 
             <section className="min-w-0">
               <div className="flex items-center justify-between gap-2 mb-2">
