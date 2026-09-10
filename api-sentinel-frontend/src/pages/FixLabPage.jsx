@@ -9,7 +9,7 @@ import { GridPattern } from "../components/GridPattern";
 import api from "../services/api";
 
 const TOOLS = [
-  { id: "attack", label: "Attack Simulator", icon: Swords },
+  { id: "attack", label: "Attack Patch", icon: Swords },
   { id: "patch", label: "Auto-Fix Patch", icon: Wrench },
   { id: "spec", label: "Ask the Spec", icon: MessagesSquare },
 ];
@@ -47,6 +47,7 @@ function findingsFromProject(project) {
   return endpoints.flatMap((ep) =>
     (ep.auditResults || []).map((audit) => ({
       id: `${ep.id}-${audit.id}`,
+      auditResultId: audit.id,
       method: ep.method,
       path: ep.path,
       vulnerability: audit.vulnerability,

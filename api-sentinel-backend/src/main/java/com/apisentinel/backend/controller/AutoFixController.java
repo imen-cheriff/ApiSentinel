@@ -18,6 +18,6 @@ public class AutoFixController {
             @PathVariable Long projectId,
             @RequestBody AutoFixRequest request
     ) {
-        return autoFixService.generatePatch(request);
+        return autoFixService.generatePatch(projectId, request);
     }
 }

@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
-import { Wrench, Bookmark, RotateCcw, Copy, Check, Download, Info } from "lucide-react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { Wrench, Bookmark, RotateCcw, Copy, Check, Download, Info, X } from "lucide-react";
 import { generateAutoFixPatch } from "../services/api";
 import { getErrorMessage } from "../services/apiErrors";
 import { cn } from "../lib/utils";
+import ConfirmDialog from "./ConfirmDialog";
 
 function diffLines(oldStr, newStr) {
   const oldLines = (oldStr ?? "").split("\n");
@@ -91,9 +92,6 @@ const BORDER_CLASS = {
   sky: "border-sky-100",
 };
 
-// Single <pre> with one <span className="block"> per line, instead of a
-// div per row — keeps line-height consistent with no per-row padding, so
-// there's no visible gap between lines.
 function SpecBlock({ rows, border = "gray" }) {
   return (
     <pre
@@ -136,10 +134,14 @@ export default function AutoFixPatchPanel({ projectId, finding }) {
   const [error, setError] = useState(null);
   const [savedAt, setSavedAt] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
     setError(null);
     setCopied(false);
+    setShowCancelConfirm(false);
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey));
       if (saved?.result) {
@@ -170,7 +172,16 @@ export default function AutoFixPatchPanel({ projectId, finding }) {
   const addedCount = useMemo(() => diff.filter((r) => r.type === "added").length, [diff]);
   const removedCount = useMemo(() => diff.filter((r) => r.type === "removed").length, [diff]);
 
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, [storageKey]);
+
   const runPatch = async () => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     setError(null);
     try {
@@ -178,12 +189,24 @@ export default function AutoFixPatchPanel({ projectId, finding }) {
       setResult(data);
       setSavedAt(null); // a fresh, unsaved run
     } catch (err) {
+      if (err?.code === "CANCELLED") return; // annulation volontaire, rien à afficher
       console.error("generateAutoFixPatch failed:", err);
       setError(getErrorMessage(err, "Failed to generate patch. Try again."));
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
     }
   };
+
+  const requestCancel = () => setShowCancelConfirm(true);
+
+  const confirmCancel = () => {
+    abortControllerRef.current?.abort();
+    setShowCancelConfirm(false);
+    setLoading(false);
+  };
+
+  const dismissCancel = () => setShowCancelConfirm(false);
 
   const copyPatch = async () => {
     if (!result?.patchedSpecification) return;
@@ -243,6 +266,17 @@ export default function AutoFixPatchPanel({ projectId, finding }) {
 
   return (
     <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-6">
+      <ConfirmDialog
+        open={showCancelConfirm}
+        title="Cancel generation?"
+        message="This will stop the attack path generation currently in progress."
+        confirmLabel="Cancel generation"
+        cancelLabel="Keep generating"
+        danger
+        onConfirm={confirmCancel}
+        onCancel={dismissCancel}
+      />
+
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
           <Wrench size={18} className="text-blue-600" />
@@ -301,7 +335,15 @@ export default function AutoFixPatchPanel({ projectId, finding }) {
 
       {loading && (
         <div className="space-y-2">
-          <p className="text-sm text-blue-600">Drafting the patched spec…</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-blue-600">Drafting the patched spec…</p>
+            <button
+              onClick={requestCancel}
+              className="flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-red-600"
+            >
+              <X size={12} /> Cancel
+            </button>
+          </div>
           <div className="h-1.5 bg-gray-100 rounded overflow-hidden">
             <div className="h-full w-2/3 bg-blue-500 animate-pulse rounded" />
           </div>

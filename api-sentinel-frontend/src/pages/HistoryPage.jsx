@@ -5,6 +5,7 @@ import autoTable from "jspdf-autotable";
 import api from "../services/api";
 import { cn } from "../lib/utils";
 import { GridPattern } from "../components/GridPattern";
+import ConfirmDialog from "../components/ConfirmDialog";
 import {
     Shield,
     History as HistoryIcon,
@@ -349,6 +350,7 @@ function HistoryPage() {
     const navigate = useNavigate();
     const [scans, setScans] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [deleteTargetId, setDeleteTargetId] = useState(null);
 
     useEffect(() => {
         api
@@ -373,6 +375,13 @@ function HistoryPage() {
     const handleDelete = async (id) => {
         await api.delete(`/api/projects/${id}`);
         setScans((prev) => prev.filter((s) => s.id !== id));
+    };
+
+    const confirmDelete = async () => {
+        if (deleteTargetId == null) return;
+        const id = deleteTargetId;
+        setDeleteTargetId(null);
+        await handleDelete(id);
     };
 
     const handleRerun = (id) => {
@@ -525,7 +534,7 @@ function HistoryPage() {
                                                     <ArrowLeftRight className="w-3.5 h-3.5" />
                                                 </button> */}
                                                 <button
-                                                    onClick={() => handleDelete(scan.id)}
+                                                    onClick={() => setDeleteTargetId(scan.id)}
                                                     className="p-1.5 rounded-md border border-blue-200 text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                                                     title="Delete"
                                                 >
@@ -547,6 +556,17 @@ function HistoryPage() {
                     )}
                 </section>
             </div>
+
+            <ConfirmDialog
+                open={deleteTargetId !== null}
+                title="Delete this scan?"
+                message="This scan will be permanently removed from your history."
+                confirmLabel="Delete"
+                cancelLabel="Cancel"
+                danger
+                onConfirm={confirmDelete}
+                onCancel={() => setDeleteTargetId(null)}
+            />
         </div>
     );
 }

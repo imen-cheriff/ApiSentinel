@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
-import { Swords, ArrowRight, Bookmark, RotateCcw, Copy, Check } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Swords, ArrowRight, Bookmark, RotateCcw, Copy, Check, X } from "lucide-react";
 import { simulateAttack } from "../services/api";
 import { getErrorMessage } from "../services/apiErrors";
+import ConfirmDialog from "./ConfirmDialog";
 
 function JsonLine({ text }) {
   const keyMatch = text.match(/^(\s*)("(?:\\.|[^"\\])*")(\s*:\s*)(.*)$/);
@@ -35,7 +36,6 @@ function JsonValue({ text }) {
   );
 }
 
-// Renders pre-formatted JSON with one colored <span> per line.
 function JsonBlock({ text }) {
   return text.split("\n").map((line, i) => (
     <span key={i} className="block">
@@ -44,8 +44,6 @@ function JsonBlock({ text }) {
   ));
 }
 
-// Token coloring for a curl command line: the "curl" keyword, flags
-// (-X, -H, --data, ...), the HTTP method, and quoted strings.
 function CurlLine({ text }) {
   const tokens = text.match(/"(?:\\.|[^"\\])*"|\S+|\s+/g) || [text];
   return tokens.map((tok, i) => {
@@ -82,7 +80,6 @@ function CurlLine({ text }) {
   });
 }
 
-// Renders a (possibly multi-line) curl command with one colored line per row.
 function CurlBlock({ text }) {
   return text.split("\n").map((line, i) => (
     <span key={i} className="block">
@@ -99,13 +96,14 @@ export default function AttackSimulatorPanel({ projectId, finding }) {
   const [error, setError] = useState(null);
   const [savedAt, setSavedAt] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
-  // Whenever the selected finding changes, forget the previous finding's
-  // result/error and load whatever was saved for THIS finding (if anything).
-  // Without this, switching routes kept showing the last finding's simulation.
+  const abortControllerRef = useRef(null);
+
   useEffect(() => {
     setError(null);
     setCopied(false);
+    setShowCancelConfirm(false);
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey));
       if (saved?.result) {
@@ -121,20 +119,41 @@ export default function AttackSimulatorPanel({ projectId, finding }) {
     }
   }, [storageKey]);
 
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, [storageKey]);
+
   const runSimulation = async () => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     setError(null);
     try {
-      const data = await simulateAttack(projectId, finding);
+      const data = await simulateAttack(projectId, finding, { signal: controller.signal });
       setResult(data);
-      setSavedAt(null); // a fresh, unsaved run
+      setSavedAt(null);
     } catch (err) {
+      if (err?.code === "CANCELLED") return; // annulation volontaire, rien à afficher
       console.error("simulateAttack failed:", err);
       setError(getErrorMessage(err, "Failed to run simulation. Try again."));
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
     }
   };
+
+  const requestCancel = () => setShowCancelConfirm(true);
+
+  const confirmCancel = () => {
+    abortControllerRef.current?.abort();
+    setShowCancelConfirm(false);
+    setLoading(false);
+  };
+
+  const dismissCancel = () => setShowCancelConfirm(false);
 
   const copyRequest = async () => {
     if (!result?.attackerRequest) return;
@@ -143,8 +162,6 @@ export default function AttackSimulatorPanel({ projectId, finding }) {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(textToCopy);
       } else {
-        // Fallback for non-secure contexts / older browsers where
-        // navigator.clipboard is unavailable and writeText throws.
         const textarea = document.createElement("textarea");
         textarea.value = textToCopy;
         textarea.style.position = "fixed";
@@ -163,9 +180,6 @@ export default function AttackSimulatorPanel({ projectId, finding }) {
     }
   };
 
-  // Some backend/AI responses come back pretty-printed, others compact —
-  // normalize to a consistently-indented string so the UI never looks
-  // inconsistent from one route to the next.
   const formatJson = (value) => {
     if (value == null) return "";
     if (typeof value === "object") return JSON.stringify(value, null, 2);
@@ -173,7 +187,7 @@ export default function AttackSimulatorPanel({ projectId, finding }) {
       try {
         return JSON.stringify(JSON.parse(value), null, 2);
       } catch {
-        return value; // not valid JSON — show as-is
+        return value;
       }
     }
     return String(value);
@@ -199,6 +213,17 @@ export default function AttackSimulatorPanel({ projectId, finding }) {
 
   return (
     <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-6">
+      <ConfirmDialog
+        open={showCancelConfirm}
+        title="Cancel generation?"
+        message="This will stop the attack path generation currently in progress."
+        confirmLabel="Cancel generation"
+        cancelLabel="Keep generating"
+        danger
+        onConfirm={confirmCancel}
+        onCancel={dismissCancel}
+      />
+
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
           <Swords size={18} className="text-blue-600" />
@@ -257,7 +282,15 @@ export default function AttackSimulatorPanel({ projectId, finding }) {
 
       {loading && (
         <div className="space-y-2">
-          <p className="text-sm text-blue-600">Building attack path…</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-blue-600">Building attack path…</p>
+            <button
+              onClick={requestCancel}
+              className="flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-red-600"
+            >
+              <X size={12} /> Cancel
+            </button>
+          </div>
           <div className="h-1.5 bg-gray-100 rounded overflow-hidden">
             <div className="h-full w-2/3 bg-blue-500 animate-pulse rounded" />
           </div>

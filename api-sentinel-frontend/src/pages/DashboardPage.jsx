@@ -323,6 +323,12 @@ function scoreGaugeColorOf(score) {
   return "#dc2626"; // rouge - ACTION REQUIRED
 }
 
+function dashboardStatusForScore(score) {
+  if (score >= 80) return { label: "Clean", color: "#2563eb", Icon: CheckCircle2 };
+  if (score >= 50) return { label: "Review", color: "#ca8a04", Icon: Activity };
+  return { label: "Action required", color: "#dc2626", Icon: AlertTriangle };
+}
+
 function ScoreGauge({ score, size = 130 }) {
   const strokeWidth = 10;
   const radius = (size - strokeWidth) / 2;
@@ -833,6 +839,8 @@ function DashboardPage() {
 
   const owaspCodesPresent = new Set(allAudits.map((a) => owaspCodeOf(a.owaspCategory)).filter(Boolean));
   const presentOwaspCoverage = ALL_OWASP_CATEGORIES.filter((c) => owaspCodesPresent.has(c.code));
+  const dashboardStatus = dashboardStatusForScore(project.globalSecurityScore ?? 0);
+  const StatusIcon = dashboardStatus.Icon;
 
   return (
     <div className="relative min-h-screen w-full bg-[#eef2f8] text-slate-900 font-mono px-6 py-8 overflow-x-hidden">
@@ -873,10 +881,17 @@ function DashboardPage() {
                     {formatRelativeTime(project.scanDate)}
                   </span>
                   <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200/80 bg-white/80 px-2.5 py-1 text-slate-600 shadow-sm">
-                    <Lock className="size-3 text-blue-600" /> OWASP API Top 10 · 2023
+                    <Lock className="size-3 text-blue-600" /> OWASP API Top 10
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-blue-500/10 px-2.5 py-1 font-bold text-blue-700 shadow-sm">
-                    <AlertTriangle className="size-3 text-blue-600" /> Action required
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-bold shadow-sm"
+                    style={{
+                      color: dashboardStatus.color,
+                      backgroundColor: `${dashboardStatus.color}12`,
+                      border: `1px solid ${dashboardStatus.color}4d`,
+                    }}
+                  >
+                    <StatusIcon className="size-3" /> {dashboardStatus.label}
                   </span>
                 </div>
               </div>

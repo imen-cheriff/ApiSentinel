@@ -4,9 +4,5 @@ import lombok.Data;
 
 @Data
 public class AttackSimulationRequest {
-    private String method;
-    private String path;
-    private String vulnerability;
-    private String owaspTag;
-    private String riskLevel;
+    private Long auditResultId;
 }

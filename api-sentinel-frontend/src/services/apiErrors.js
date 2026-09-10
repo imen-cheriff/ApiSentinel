@@ -1,3 +1,4 @@
+import axios from "axios";
 export class ApiError extends Error {
   constructor(message, code, status) {
     super(message);
@@ -8,6 +9,10 @@ export class ApiError extends Error {
 }
 
 export function normalizeApiError(error) {
+    if (axios.isCancel?.(error) || error?.code === "ERR_CANCELED") {
+    return new ApiError("Cancelled", "CANCELLED", undefined);
+  }
+
   const body = error?.response?.data; 
   const status = error?.response?.status;
 

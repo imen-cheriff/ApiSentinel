@@ -18,6 +18,6 @@ public class AttackSimulatorController {
             @PathVariable Long projectId,
             @RequestBody AttackSimulationRequest request
     ) {
-        return attackSimulatorService.simulate(request);
+        return attackSimulatorService.simulate(projectId, request);
     }
 }
